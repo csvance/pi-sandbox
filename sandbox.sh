@@ -63,6 +63,9 @@ WRITE_DIRS=(
                           #   Want full isolation? Move it to PRIVATE_DATA_DIRS.
   # ~/.local/share/fish is intentionally NOT here — the sandbox fish gets its
   # own persistent history copy instead (see PRIVATE_DATA_DIRS below).
+  "$HOME/.cache/huggingface"  # HF model/dataset cache — shared read-write with
+                          #   the host, so downloads persist across launches
+                          #   (HF_HOME points here; see the env section below).
 )
 
 # /tmp is a PRIVATE tmpfs: writable, but contents vanish when the sandbox
@@ -144,6 +147,11 @@ ARGS=(
   --dir /tmp/xdg-cache
   --setenv XDG_CACHE_HOME /tmp/xdg-cache  # private kaimon cache: IPC sockets,
                                          #   kaimon.db, agent/extension logs
+  --setenv HF_HOME "$HOME/.cache/huggingface"  # HF hub cache -> shared,
+                                         #   persistent dir (bound read-write
+                                         #   above), so downloads survive
+                                         #   relaunches and are visible to
+                                         #   host-side HF tools
   --setenv HERDR_SOCKET_PATH /tmp/herdr/herdr.sock
   --setenv HERDR_CLIENT_SOCKET_PATH /tmp/herdr/herdr-client.sock
   --setenv HERDR_SESSION "$HERDR_SANDBOX_SESSION"
