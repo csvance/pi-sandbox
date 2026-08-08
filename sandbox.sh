@@ -149,6 +149,25 @@ ARGS=(
   --setenv HERDR_SESSION "$HERDR_SANDBOX_SESSION"
 )
 
+# ===========================================================================
+# CLOSE HOST CREDENTIAL CHANNELS.
+# The host root is ro-bound, so the REAL /run/user/<uid> (the host session
+# runtime dir — D-Bus bus, kwallet/keyring sockets, p11-kit, X auth, …) was
+# visible by path; gh found its OAuth token through the host secret service
+# behind it. Mask the dir with a private tmpfs and drop the env vars that
+# name it, so nothing from the host desktop session leaks into the sandbox
+# (same reasoning as the XDG_RUNTIME_DIR/XDG_CACHE_HOME redirects). The SSH
+# agent, when the parent has one, is still bound explicitly by EXTRA_ARGS.
+# ===========================================================================
+ARGS+=(--dir "/run/user/$(id -u)")
+ARGS+=(--tmpfs "/run/user/$(id -u)")
+
+# Scrub credential env vars the host launcher might carry, by name.
+for _var in GH_TOKEN GITHUB_TOKEN GH_ENTERPRISE_TOKEN GITHUB_PAT GH_ENTERPRISE_PAT; do
+  ARGS+=(--unsetenv "$_var")
+done
+ARGS+=(--unsetenv DBUS_SESSION_BUS_ADDRESS)
+
 # Carry display env vars through (the TUI doesn't need them; GUI apps
 # launched from panes do).
 [[ -n "${WAYLAND_DISPLAY:-}" ]] && ARGS+=(--setenv WAYLAND_DISPLAY "$WAYLAND_DISPLAY")
@@ -213,6 +232,8 @@ case "${1:-}" in
       probe_body+="; do echo \"sandbox-private: \$p -> ${PRIVATE_DATA_ROOT}\${p#\$HOME}\"; done;"
     fi
     probe_body+='for s in "$HOME/.ssh" "$HOME/.claude" "$HOME/.cache" "$HOME/Documents" "$HOME/.local/share/TelegramDesktop"; do [ -e "$s" ] && echo "LEAK: $s" || echo "invisible: $s"; done;'
+    probe_body+='echo "runtime dir: $(ls -A "/run/user/$(id -u)" 2>/dev/null | wc -l) entries (0 = host session masked)";'
+    probe_body+='if gh auth token >/dev/null 2>&1; then echo "gh token: AVAILABLE (leak!)"; else echo "gh token: none (credential channels closed)"; fi;'
     probe_body+='if [ -w / ]; then echo "WARNING: / is writable!"; else echo "read-only:   / (baseline)"; fi;'
     probe_body+='echo "readable:    /etc/resolv.conf, herdr binary"; herdr status'
     exec bwrap "${ARGS[@]}" -- sh -c "$probe_body"
