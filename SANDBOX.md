@@ -81,8 +81,11 @@ ecosystems agents install from:
 
 - **Why 7 days** — the two classic registry attacks are freshly-published
   typosquats and account-takeover re-publishes. Both are stopped by an age
-  gate. npm's `min-release-age` warns (advisory unless `strict-release-age` is
-  set); uv's `exclude-newer` hard-filters.
+  gate. npm 12's `min-release-age` is **strict by default**: if no version of
+  a dependency satisfies the window, the install hard-errors
+  (`ENOVERSIONS`). The old warning-mode toggle (`strict-release-age`, npm
+  ≤11) no longer exists in npm 12 — verified absent from both the CLI and the
+  docs. uv's `exclude-newer` hard-filters the same way.
 
 ## Per-project agent scoping
 
