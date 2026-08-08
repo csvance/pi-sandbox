@@ -31,6 +31,8 @@
 # Usage:
 #   ./sandbox.sh                # launch herdr inside the sandbox (attach to
 #                               # the sandbox-private session)
+#   ./sandbox-project.sh        # same, but hide ~/Git except the project you
+#                               #   launch from (per-project agent isolation)
 #   ./sandbox.sh --session X    # any herdr CLI args pass through
 #   ./sandbox.sh --check        # policy probe: mounts, visible $HOME, tools
 #                               # on PATH, surviving env. Run after ANY edit.
@@ -118,6 +120,22 @@ ROOT_WRITE_DIRS=(
 )
 
 # ===========================================================================
+# PROJECT SCOPING (opt-in blast-radius reduction).
+# By default the sandbox binds ALL of $HOME/Git read-write. Set
+# SANDBOX_PROJECTS to a comma-separated list of project dirs (each must live
+# under $HOME/Git) to bind ONLY those instead of the whole tree — an agent in
+# such a sandbox never even sees sibling repos. The wrapper sandbox-project.sh
+# sets this from the directory the user launches in. Leave unset for the
+# default behaviour.
+# ===========================================================================
+SANDBOX_PROJECTS="${SANDBOX_PROJECTS:-}"
+if [[ -n "$SANDBOX_PROJECTS" ]]; then
+  IFS=',' read -r -a GIT_BIND_DIRS <<< "$SANDBOX_PROJECTS"
+else
+  GIT_BIND_DIRS=("$HOME/Git")
+fi
+
+# ===========================================================================
 # THE POLICY: paths herdr/pi may READ + WRITE inside $HOME.
 # Add entries freely; the script mkdirs them on the host if they don't exist.
 # Use absolute paths with $HOME expanded.
@@ -137,7 +155,7 @@ WRITE_DIRS=(
                           #   updated detection profiles and logs a WARN at
                           #   server start. Detection profiles, not personal
                           #   data.
-  "$HOME/Git"             # your projects
+  "${GIT_BIND_DIRS[@]}"   # projects (SANDBOX_PROJECTS-scoped; default: all of ~/Git)
   "$HOME/.config/herdr"   # herdr config.toml + server log
   "$HOME/.pi/agent"       # pi auth (auth.json), sessions, mcp config
                           #   Without this, pi has no API keys and can't
