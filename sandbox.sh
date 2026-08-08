@@ -261,7 +261,7 @@ ENV_PASS=(
   # toolchains
   NVM_DIR NVM_BIN NVM_INC
   JULIA_DEPOT_PATH JULIA_PKG_SERVER JULIA_NUM_THREADS JULIA_CPU_TARGET
-  UV_NATIVE_TLS UV_SYSTEM_CERTS UV_PYTHON_INSTALL_DIR UV_EXCLUDE_NEWER
+  UV_NATIVE_TLS UV_SYSTEM_CERTS UV_PYTHON_INSTALL_DIR
   MPLCONFIGDIR
   CUDA_VISIBLE_DEVICES
 )
@@ -479,6 +479,14 @@ ARGS+=(
   --setenv HERDR_SESSION "$HERDR_SANDBOX_SESSION"
 )
 
+# uv: FORCE excluding package releases newer than 7 days (uv accepts "7 days").
+# Set unconditionally AFTER the ENV_PASS loop so it wins over any value
+# exported in the launching shell — the sandbox is secure by default and the
+# window cannot be widened from outside. (Processes inside the sandbox can
+# still override their own env, as with every other policy pin.) Tune the age
+# by editing the "7 days" string here.
+ARGS+=(--setenv UV_EXCLUDE_NEWER "7 days")
+
 # --- $HOME ----------------------------------------------------------------
 # Mask $HOME entirely: a private, writable, EPHEMERAL tmpfs. Nothing from the
 # host home directory is visible until bound back in. Must come BEFORE every
@@ -546,6 +554,21 @@ for dir in "${PRIVATE_DATA_DIRS[@]}"; do
   private="$PRIVATE_DATA_ROOT${dir#"$HOME"}"
   ARGS+=(--bind "$private" "$dir")
 done
+
+# --- ~/.npmrc: enforced secure default; the host's config is NEVER bound -----
+# The host's ~/.npmrc is deliberately not mounted: the sandbox always gets its
+# own persistent copy under PRIVATE_DATA_ROOT, seeded on first launch with
+# NPMRC_DEFAULT, bound READ-ONLY so the sandbox can never weaken it (npm
+# config set / npm login inside the sandbox fail with EROFS). To change the
+# enforced default: edit NPMRC_DEFAULT and delete the private copy once; it
+# will be re-seeded on the next launch.
+NPMRC_DEFAULT=$'ignore-scripts=true\nmin-release-age=7'
+NPMRC_PRIVATE="$PRIVATE_DATA_ROOT/.npmrc"
+if [[ ! -f "$NPMRC_PRIVATE" ]]; then
+  printf '%s\n' "$NPMRC_DEFAULT" > "$NPMRC_PRIVATE" 2>/dev/null || \
+    warn "cannot seed sandbox .npmrc at '$NPMRC_PRIVATE' (it will be absent inside the sandbox)"
+fi
+[[ -f "$NPMRC_PRIVATE" ]] && ARGS+=(--ro-bind "$NPMRC_PRIVATE" "$HOME/.npmrc")
 
 ARGS+=("${EXTRA_ARGS[@]}")
 
