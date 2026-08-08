@@ -1,47 +1,58 @@
-# pi-sandbox — bwrap policy for herdr + pi
+# pi-sandbox: bwrap policy for herdr + pi
 
 Launches [herdr](https://herdr.dev) inside a [bubblewrap](https://github.com/containers/bubblewrap)
-sandbox. Every pane herdr spawns — including all pi sessions — runs inside
-the same boundary, so a single policy covers the whole agent workspace.
+sandbox. Every pane herdr spawns, including all pi sessions, runs inside the
+same boundary, so a single policy covers the whole agent workspace.
+
+## The three axes
+
+Deny-by-default on all three. A leak on any one of them defeats the other two.
+
+| Axis | Mechanism |
+| --- | --- |
+| **Filesystem** | There is no read-only bind of `/`. The root filesystem is *enumerated*, not inherited: only `/usr`, `/etc`, `/proc`, `/dev`, `/tmp` and the short `ROOT_READONLY` list are visible. `$HOME` is masked with a private tmpfs and rebound one path at a time. |
+| **Runtime** | `/run` is a private tmpfs, so the session bus, the keyring ssh/control sockets, the gpg agent socket and any docker socket are unreachable by path. |
+| **Environment** | `--clearenv`, then only the names in `ENV_PASS` are re-set. A token exported in the launching shell never enters the sandbox. |
 
 ## The policy
 
 | Mount | Access | Why |
 | --- | --- | --- |
-| `/` (host root) | **read-only** | baseline: `/usr`, `/bin`, `/lib`, `/etc` (TLS certs), node — everything readable |
-| `$HOME` | **private tmpfs** | home directory is masked entirely. Only the rows below are bound back in; everything else is **invisible** to the sandbox |
+| `/usr`, `/etc` | read-only | binaries, libraries, TLS certs, `nsswitch.conf`, `resolv.conf`. `/lib`, `/lib64`, `/bin`, `/sbin` are symlinks into `usr/`. |
+| `/proc`, `/dev` | standard | fresh procfs + devtmpfs. `/dev/shm` is a private tmpfs. |
+| `/sys` | read-only, toggle | `BIND_SYS=1` by default. See "Why `/sys` is still bound" below. |
+| `/run` | **private tmpfs** | host runtime dir masked. `/run/user/$UID` is recreated empty at mode 0700. |
+| `ROOT_READONLY` | read-only | the few `/run` and `/var` paths that must come back: DNS (`/run/systemd/resolve`), directory-service NSS sockets, a GPU control socket. Entries that do not exist are skipped. |
+| **everything else at `/`** | **invisible** | `/var` (logs, `/var/lib` service state), `/opt`, `/srv`, `/mnt`, `/media`, any mounted volume or network share, and any other user's home. |
+| `$HOME` | **private tmpfs** | masked entirely. Only the rows below are bound back in. |
 | `~/Git` | read/write | your projects |
-| `~/.julia` | read/write | Julia depot (packages, registries, dev'd packages) + kaimon launcher |
+| `~/.julia` | read/write | Julia depot (packages, registries, dev'd packages) |
 | `~/.juliaup` | read-only | julia binary + toolchains |
-| `~/.local/bin` | read-only | CLI symlinks: pi, herdr, claude, uv… |
+| `~/.local/bin` | read-only | CLI symlinks: pi, herdr, claude, uv... |
 | `~/.local/lib/node_modules` | read-only | pi's install |
+| `~/.config/nvm` | read-only | nvm-managed node, when that is where node lives |
+| `~/.local/share/claude/versions` | read-only | claude's real binaries, when `~/.local/bin/claude` is a symlink into it |
+| `~/.cargo/bin` | read-only | cargo-installed CLIs. The `bin` leaf only; `~/.cargo` also holds registry tokens. |
 | `~/.gitconfig` | read-only | git identity / signing config |
-| `~/.config/fish` | read/write | fish config + `fish_variables` (universal vars — fish must write these) |
+| `~/.config/fish` | read/write | fish config + `fish_variables` (universal vars, fish must write these) |
 | `~/.config/herdr` | read/write | herdr `config.toml`, server log |
 | `~/.herdr` | read/write | herdr session/data directory |
 | `~/.local/state/herdr` | read/write | herdr's agent-detection manifest cache (shared with host herdr; detection profiles, not personal data) |
-| `~/.pi/agent` | read/write | pi's agent state (auth, sessions, MCP config) — pi is useless without it |
+| `~/.pi/agent` | read/write | pi's agent state (auth, sessions, MCP config). pi is useless without it. |
 | `~/.config/kaimon` | read/write | Kaimon config: `projects.json`, `extensions.json`, `config.json` |
-| `~/.local/share/fish` | **private persistent copy** | fish history + state. Replaced by an isolated copy stored at `~/.local/share/pi-sandbox/…` — sandbox fish can neither read nor write the host's `fish_history`, and the copy survives restarts |
-| `XDG_CACHE_HOME` | **private** (`/tmp/xdg-cache`) | Kaimon's cache — ZMQ IPC sockets, `kaimon.db`, agent logs — redirected here so the sandboxed kaimon can never attach to or stomp a kaimon/gate on the host (Kaimon binds fixed socket names with rm-first semantics) |
-| `/tmp` | **private tmpfs** | writable, discarded when the sandbox exits; host `/tmp` is *not* visible |
-| `/dev`, `/proc`, `/sys` | standard | fresh devtmpfs + procfs; `/dev/shm` is a private tmpfs |
+| `~/.cache/huggingface`, `~/.cache/uv`, `~/.local/share/uv` | read/write | model and package caches, shared with the host so downloads persist |
+| `~/.local/share/fish` | **private persistent copy** | fish history + state, stored at `~/.local/share/pi-sandbox/...`. Sandbox fish can neither read nor write the host's `fish_history`, and the copy survives restarts. |
+| `XDG_CACHE_HOME` | **private** (`/tmp/xdg-cache`) | Kaimon's cache: ZMQ IPC sockets, `kaimon.db`, agent logs. Redirected so the sandboxed kaimon can never attach to or stomp a kaimon/gate on the host (Kaimon binds fixed socket names with rm-first semantics). |
+| `/tmp` | **private tmpfs** | writable, discarded on exit. Host `/tmp` is not visible. |
 
-Everything not in the table is invisible (for `$HOME`) or read-only (for the
-rest of the host root). herdr, pi, Julia, git read fine from the ro root;
-only the listed paths are bound in.
-
-Read protection is the allowlist itself: `$HOME` is masked wholesale, and
-only the rows above are bound back in — anything not listed is invisible.
-There is no separate hide-list; see "Sensitive paths" below for what must
-never be bound.
+Read protection is the allowlist itself. There is no separate hide-list.
 
 ## Usage
 
 ```bash
 ./sandbox.sh                # attach to the sandbox-private herdr session
 ./sandbox.sh --session X    # any herdr CLI arg passes through
-./sandbox.sh --check        # probe: prints the effective policy, exits
+./sandbox.sh --check        # policy probe (run this after every edit)
 ./sandbox.sh --print-policy # prints the assembled bwrap command
 ```
 
@@ -51,107 +62,259 @@ Optional: symlink it into your PATH.
 ln -s "$PWD/sandbox.sh" ~/.local/bin/pi-sandbox
 ```
 
+## `--check`
+
+Launches the real sandbox on a probe script and reports what the policy
+actually produced, rather than what it was meant to produce. It prints the
+effective mount table, the top level of `/`, the contents of `/run`, every
+entry visible in `$HOME`, the writability of each grant, the surviving
+environment, and:
+
+```
+--- tools on PATH ---
+  ok       julia      /home/user/.juliaup/bin/julia
+  ok       node       /home/user/.config/nvm/versions/node/v25.2.1/bin/node
+  BROKEN   pi         /home/user/.local/bin/pi -> /home/user/.local/lib/... (symlink target not bound in)
+  MISSING  gh
+```
+
+That section is the one that earns its keep. Under a masked home, "my
+toolchain is still intact" is not obvious from the mount list, because half of
+it arrives through paths like `~/.local/share/<tool>/versions/<n>` that nobody
+thinks to check. `BROKEN` is the characteristic failure: a wrapper in
+`~/.local/bin` resolves fine on `PATH` and then fails to exec, because its real
+payload lives somewhere unlisted.
+
+It also prints host-side facts that the policy depends on: the bubblewrap
+version, `dev.tty.legacy_tiocsti`, and whether an ssh agent is being forwarded
+in.
+
+Run it after any policy edit. It turns "run it and see what explodes over the
+next week" into a ten second answer.
+
 ## Adding paths (the part you'll keep doing)
 
-Three knobs, one line each — decide what you want the path to be:
+Four knobs, one line each.
 
-| Want it to be… | Add it to | Notes |
+| Want it to be... | Add it to | Notes |
 | --- | --- | --- |
-| read/write (host dir shared) | `WRITE_DIRS` | the script `mkdir -p`s it on the host first, so new paths work with no setup |
-| read-only (visible, never written) | `HOME_READONLY` | installed CLIs, configs — e.g. `"$HOME/.config/<app>"` |
-| invisible | *nothing* | default: any path not listed is invisible inside the sandbox |
-| the sandbox's OWN persistent copy | `PRIVATE_DATA_DIRS` | host version replaced by a private store; survives restarts |
+| read/write inside `$HOME` | `WRITE_DIRS` | the script `mkdir -p`s it on the host first, so new paths work with no setup |
+| read-only inside `$HOME` | `HOME_READONLY` | installed CLIs, configs. Bind the **leaf**, not the parent. |
+| visible outside `$HOME` | `ROOT_READONLY` / `ROOT_WRITE_DIRS` | keep both as short as you can |
+| invisible | *nothing* | the default: any path not listed is invisible |
+| the sandbox's own persistent copy | `PRIVATE_DATA_DIRS` | host version replaced by a private store; survives restarts |
 
-The script `mkdir -p`s each `WRITE_DIRS` entry on the host before binding, so
-paths that don't exist yet (like `~/.herdr` did) work without extra setup.
-Keep `HOME_READONLY` disjoint from `WRITE_DIRS` / `PRIVATE_DATA_DIRS` (those
-bind the same paths read-write).
+### The one rule
 
-## Why herdr works in here (the isolation details)
+Never bind a whole parent subtree (`~/.config`, `~/.local/share`, `~/.cache`)
+without re-masking the credential directories underneath it: add a
+`--tmpfs "$path"` for each one immediately after the new bind. Binding
+`~/.config` wholesale re-exposes every credential store under it and silently
+undoes the entire home mask. Bind the leaf, not the parent.
 
-1. **Socket pinning.** herdr's default socket is `~/.config/herdr/herdr.sock`.
-   If the sandbox shared that, the sandboxed herdr client would attach to any
-   herdr server already running on the host — silently escaping the sandbox.
-   `HERDR_SOCKET_PATH` / `HERDR_CLIENT_SOCKET_PATH` are pinned to the private
-   `/tmp/herdr/`, so sandboxed herdr and host herdr can never see each other.
-2. **Session namespacing.** `~/.herdr` is shared read-write with the host, so
-   `HERDR_SESSION=sandbox` namespaces session state and prevents collisions
-   with host sessions. Change the name in the script if you want multiple
-   sandboxes.
-3. **Runtime dir redirection.** `XDG_RUNTIME_DIR` points at `/tmp/xdg-runtime`
-   (private) instead of `/run/user/1000` (read-only in the sandbox).
-4. **Whole-tree containment.** `--unshare-pid` makes herdr PID 1 of a new
-   process namespace; when it exits (or `--die-with-parent` fires because the
-   launching terminal closed), the kernel reaps every pane and pi session.
+This applies to read-only binds too, and it is easier to violate there because
+read-only feels safe. Read-only still means the agent can read every credential
+under the path, and it does not stop `connect()` to a unix socket under it
+either (see below).
+
+The rule is repeated as a comment directly above `WRITE_DIRS` and
+`HOME_READONLY` in the script, where the edit actually happens.
+
+## Symlinks and nested grants
+
+Two bugs the allowlist model invites, both handled mechanically:
+
+1. **Symlinked entries.** If a listed path is a symlink, the thing actually
+   bound is the target, not the name. Every entry is resolved with `realpath`
+   first, and both the target and the listed name are bound, so `PATH` entries
+   and configs that refer to the name keep working. Resolving first is also
+   what makes "is this entry inside a credential directory" a question you can
+   answer by looking at the list.
+2. **Nested grants.** A read-only entry whose realpath lands strictly inside a
+   read-write entry gets layered on top by bwrap and silently makes that
+   subtree unwritable. A `~/.julia/bin` symlink into an already-granted cache
+   turns the whole depot read-only, and the failure looks like a Julia bug, not
+   a policy bug. Such entries are dropped with a warning on stderr.
+
+Read-only binds are also applied *before* read-write ones, so a read-write
+grant always wins over an overlapping read-only parent instead of depending on
+list order.
+
+## Environment
+
+bwrap passes the parent environment through untouched, so any credential
+exported in the launching shell walks straight past the mount allowlist:
+`GITHUB_TOKEN`, `ANTHROPIC_API_KEY`, `AWS_*`, `OPENAI_API_KEY`, whatever a
+direnv or a sourced `.envrc` put there. No amount of home masking touches it.
+
+`--clearenv` drops everything, then only the names in `ENV_PASS` are re-set
+from the parent, and only when non-empty. This is deny-by-default: a new
+credential variable is excluded because it is not listed, not because someone
+remembered to add it to a scrub list. A name matching `ENV_DENY_REGEX` is
+refused with a warning even if it is added to `ENV_PASS`.
+
+Deliberately not passed:
+
+- every `*TOKEN` / `*KEY` / `*SECRET` / `AWS_*`
+- `DBUS_SESSION_BUS_ADDRESS` and `SSH_AUTH_SOCK`. Both would otherwise be
+  inherited pointing at paths that no longer exist once `/run` is masked, and a
+  program that tries the session bus then gets a confusing connect error
+  instead of cleanly concluding there is no bus. `SSH_AUTH_SOCK` is re-set only
+  in the branch that actually binds the agent socket, so it never dangles.
+- `XDG_RUNTIME_DIR` and `XDG_CACHE_HOME`, re-set to private locations
+- `SSH_CLIENT`, `SSH_CONNECTION`, `SSH_TTY`, and any parent `HERDR_*`
+
+If a tool breaks for want of a variable, `--check` prints the surviving
+environment, so the missing name is a ten second diagnosis.
+
+## Why a read-only bind is not enough
+
+A read-only bind mount does **not** block `connect()` to a unix socket beneath
+it. Verified directly: with `/var/lib/sss` bound read-only, a write into it
+fails with `EROFS` and the mount reads `ro` in `mountinfo`, yet NSS lookups
+through the socket under it still succeed.
+
+So masking `/run` is a real fix rather than defense in depth. Under a
+read-only root bind, everything under `/run` stayed reachable: the session bus,
+the keyring ssh and control sockets, the gpg agent socket, and a docker socket
+if one is ever installed. Masking `/run/user/$UID` alone closed the most
+important door but left the rest of `/run` open.
+
+The same fact means a socket you *do* need can be bound read-only rather than
+read-write.
+
+## Why `/sys` is still bound
+
+`BIND_SYS=1` by default. libdrm/DRI device enumeration (GLMakie), hwloc
+topology and CUDA device discovery read `/sys`, and it holds kernel and device
+state rather than user credentials, so the cost of keeping it is low and the
+cost of guessing wrong is a breakage that is hard to attribute. Set `BIND_SYS=0`
+and run `--check` plus a real GLMakie or CUDA job before relying on it being
+unnecessary.
+
+## `--new-session` and the other cheap flags
+
+Present: `--unshare-all` (pid, ipc, uts, cgroup, user, net, then `--share-net`
+hands the network back), `--cap-drop ALL`, `--die-with-parent`, and
+`--remount-ro /`.
+
+`--remount-ro /` matters because dropping `--ro-bind / /` leaves bwrap's own
+root tmpfs writable, so an agent could `mkdir /whatever`. It is ephemeral and
+invisible to the host, but it is a behavior change from the old read-only root,
+so the root mount is remounted read-only as the last mount argument. Nested
+mounts keep their own flags, so `/tmp`, `$HOME` and every read-write grant stay
+writable.
+
+`--new-session` blocks TIOCSTI terminal injection, where a process inside
+pushes characters into the launching terminal as if typed. It also removes job
+control, which a TUI like herdr needs, so it is a policy toggle
+(`NEW_SESSION`) defaulting to **off**. Modern kernels default
+`dev.tty.legacy_tiocsti=0`, which closes the same hole without breaking the
+TUI; `--check` prints the live sysctl. Only set `NEW_SESSION=1` for
+non-interactive use on a host where that sysctl reads 1 and cannot be changed.
 
 ## Sensitive paths (never bind them)
 
-Read protection comes from the allowlist alone: `$HOME` is masked wholesale,
-so **any path not bound in is invisible** — there is no separate hide-list.
+Read protection comes from the allowlist alone, so any path not bound in is
+invisible. Follow "the one rule" above for every edit. Credential locations
+(shell and agent secrets, git token stores, browser profiles, password vaults,
+cloud credentials, dotfile secrets) are intentionally not enumerated here.
 
-Rule for future edits: never bind a whole parent subtree (e.g. `~/.config` or
-`~/.local/share`) without re-masking the credential directories it would
-re-expose — add a `--tmpfs "$path"` for each one right after the new bind.
-Credential locations (shell/agent secrets, git token stores, browser
-profiles, password vaults, cloud/portability credentials, dotfile secrets)
-are intentionally not enumerated in this document.
+Two deliberate credential exceptions:
 
-Notes:
-- SSH remotes work without binding any host SSH state: the agent is
-  auto-mounted read-only when the parent exports `SSH_AUTH_SOCK`, so
-  `git push` just works.
-- pi's agent state is bound read-write by design — it is pi's own
-  credential store, so the allowlist entry must stay.
+- **pi's agent state** is bound read-write by design. It is pi's own credential
+  store, so the allowlist entry must stay.
+- **The ssh agent** is auto-mounted read-only when the parent exports
+  `SSH_AUTH_SOCK`, so `git push` works without binding any host SSH state and
+  without the private key ever entering the sandbox. Understand what it grants:
+  a forwarded agent is a live signing oracle for every host that trusts that
+  key, usable by anything inside for as long as it is bound. That is the right
+  tradeoff for push convenience, but it is a deliberate exception, not a free
+  one. Comment the block out if you do not need to push from inside.
+
+The bind target is created under the masked `/run` by argument ordering, so the
+agent socket survives the `/run` tmpfs.
+
+## Writes to unlisted paths now vanish silently
+
+Because `$HOME` is a tmpfs rather than a read-only bind, a write to an unlisted
+path inside `$HOME` **succeeds**, lands in the tmpfs, and is discarded when the
+sandbox exits. Under a read-only home the same write failed loudly.
+
+"My output file disappeared" is a confusing symptom to debug from scratch. It
+means the file was written outside the allowlist. Add its directory to
+`WRITE_DIRS`.
 
 ## Sandbox-private persistent data
 
 `PRIVATE_DATA_DIRS` gives a path its own persistent copy *inside* the sandbox:
-the host version is replaced by a private store under `~/.local/share/pi-sandbox/`
-(mirrored path), and the copy survives sandbox restarts. Unlike `/tmp` (wiped
-every launch), this is *persistent*; unlike `WRITE_DIRS`, it is *isolated* from
-the host.
+the host version is replaced by a private store under
+`~/.local/share/pi-sandbox/` (mirrored path), and the copy survives sandbox
+restarts. Unlike `/tmp` (wiped every launch) it is persistent; unlike
+`WRITE_DIRS` it is isolated from the host.
 
-Currently: `~/.local/share/fish` — the sandboxed fish shell (your `$SHELL` in
-herdr panes) has its own history and can neither read nor write the host's
-`~/.local/share/fish/fish_history`. (Bash/zsh histories are invisible by
-default — not bound; fish gets the stronger "own copy" treatment since it's
-the shell you actually use in panes.) The store is created automatically by the first
-host-side launch of the script.
+Currently `~/.local/share/fish`: the sandboxed fish shell has its own history
+and can neither read nor write the host's `fish_history`. Bash and zsh
+histories are invisible by default, not bound; fish gets the stronger "own
+copy" treatment since it is the shell actually used in panes. The store is
+created automatically by the first host-side launch.
+
+## Why herdr works in here
+
+1. **Socket pinning.** herdr's default socket is `~/.config/herdr/herdr.sock`.
+   If the sandbox shared that, the sandboxed herdr client would attach to any
+   herdr server already running on the host, silently escaping the sandbox.
+   `HERDR_SOCKET_PATH` / `HERDR_CLIENT_SOCKET_PATH` are pinned to the private
+   `/tmp/herdr/`, so sandboxed herdr and host herdr can never see each other.
+2. **Session namespacing.** `~/.herdr` is shared read-write with the host, so
+   `HERDR_SESSION=sandbox` namespaces session state and prevents collisions
+   with host sessions. Change the name in the script for multiple sandboxes.
+3. **Runtime dir redirection.** `XDG_RUNTIME_DIR` points at `/tmp/xdg-runtime`,
+   which is private, rather than at the masked host runtime dir.
+4. **Whole-tree containment.** `--unshare-pid` makes herdr PID 1 of a new
+   process namespace; when it exits, or `--die-with-parent` fires because the
+   launching terminal closed, the kernel reaps every pane and pi session.
 
 ## Optional extras (in the script, commented)
 
-- **GPU** — `--dev-bind-try /dev/dri /dev/dri` (GLMakie / GPU Julia work)
-- **Wayland** — bind `$XDG_RUNTIME_DIR/wayland-0` to `/tmp/wayland-0` (GUI apps)
-- **X11** — `--ro-bind-try /tmp/.X11-unix /tmp/.X11-unix` (XWayland apps)
-- **SSH agent** — mounted automatically when `SSH_AUTH_SOCK` is set; lets
-  `git push` work inside pi sessions without binding any host SSH state
-- **Shared host /tmp** — replace `--tmpfs /tmp` with `--bind /tmp /tmp`
-- **Other runtime sockets** — bind `/run/user/1000` read-write if an app
-  insists on the real runtime dir (weaker isolation; prefer redirection)
+- **GPU**: `/dev/dri` plus the `/dev/nvidia*` nodes. `/dev` is a fresh
+  devtmpfs, so the device nodes must be bound explicitly.
+- **GPU broker leases**: read-write bind on the broker's runtime dir, which
+  takes lock files.
+- **Wayland**: bind the host `wayland-0` socket to `/tmp/wayland-0`
+- **X11**: `--ro-bind-try /tmp/.X11-unix /tmp/.X11-unix`
+- **Shared host `/tmp`**: replace `--tmpfs /tmp` with `--bind /tmp /tmp`
 
 ## Troubleshooting
 
 | Symptom | Fix |
 | --- | --- |
-| `herdr update` fails | `~/.local/bin` is read-only by design. Update on the host, outside the sandbox. |
-| `./sandbox.sh` prints `herdr: detached from server` | Normal — no server was running, so herdr started one headless and detached. Attach the TUI with `./sandbox.sh session attach sandbox` (from a plain terminal; inside a herdr pane a nested TUI detaches the same way). |
-| `juliaup` self-update fails | `~/.juliaup` is read-only by design (same reason). Update on the host. |
-| I can't see `~/Documents`, `~/Downloads`, `~/.cache`, … | By design — `$HOME` is masked wholesale; only allowlisted paths are visible. Add the path to `WRITE_DIRS`/`HOME_READONLY` if you need it. |
-| `fish` errors on `set -U` (fish_variables) | `~/.config/fish` is bound read-write precisely so universal vars persist. If you still see it, the sandbox predates the change — relaunch. |
-| `git push` fails | SSH remotes: rely on the auto-mounted SSH agent, or bind your SSH state explicitly. HTTPS remotes: token stores are invisible by default (not bound) — bind them explicitly or use SSH remotes. |
-| `bwrap: setting up uid map: Invalid argument` | Unprivileged user namespaces disabled (`cat /proc/sys/kernel/unprivileged_userns_clone` → `0`). Enable it, or switch to a setuid bwrap install. |
-| A herdr server is already running on the host | No conflict — different sockets, verified. The sandbox starts its own server. |
-| `kaimon` fails with `ZMQ: Read-only file system` | Was: `~/.cache/kaimon` read-only. Fixed by redirecting `XDG_CACHE_HOME` to the private `/tmp/xdg-cache` (sockets, `kaimon.db`, logs). Consequence: kaimon session state is per-sandbox and resets each launch; config (`projects.json`) is still shared via `~/.config/kaimon`. |
-| fish prints `Unable to create temporary file ... fish_history` | Was: `~/.local/share/fish` read-only. Now bound to a sandbox-private persistent copy (`PRIVATE_DATA_DIRS`): sandbox fish history is isolated from the host's and survives restarts. If sandbox history looks "empty", that's the point — it's a fresh, separate history. |
-| pi has no credentials | pi's agent state directory missing from `WRITE_DIRS` or commented out — keep it bound. |
-| GUI/GPU app fails in a pane | Uncomment the Wayland/X11/`/dev/dri` extras above. |
-| Sandbox died when I closed the terminal | That's `--die-with-parent` working as intended: the sandbox lives exactly as long as its launcher. |
+| Anything unexpected after a policy edit | Run `./sandbox.sh --check` first. It answers most of the rows below directly. |
+| `id` or `whoami` fails, git can't determine the author | The account is not in `/etc/passwd` and NSS needs a directory-service socket. Keep `/var/lib/sss` in `ROOT_READONLY`; `--check` prints the resolved user name. |
+| DNS fails inside | `/etc/resolv.conf` is a symlink into `/run/systemd/resolve`, which the `/run` mask removes. Keep that entry in `ROOT_READONLY`. |
+| A tool is `MISSING` or `BROKEN` in `--check` | Its real payload lives outside the allowlist. Add the leaf directory that holds the binaries to `HOME_READONLY`. |
+| A tool cannot find its cache, depot or interpreters | That state may live outside `$HOME` (a per-user cache dir at the root, for instance), which is no longer visible now that `/` is not bound wholesale. Add it to `ROOT_READONLY`, or `ROOT_WRITE_DIRS` if it must be written. |
+| An environment variable a tool needs is gone | `--clearenv` is deliberate. Add the name to `ENV_PASS`; `--check` prints what survived. |
+| My output file disappeared | It was written to an unlisted path inside the masked `$HOME`, so it landed in the tmpfs and was discarded. Add its directory to `WRITE_DIRS`. |
+| `sandbox.sh: dropping read-only 'X': nested inside read-write 'Y'` | Working as intended. `X` resolves inside `Y`, and binding it read-only would have made `Y` unwritable. Remove `X` from `HOME_READONLY`. |
+| A herdr pane cannot start a job control TUI | Check `NEW_SESSION`. It must be `0` for interactive use. |
+| `herdr update` or `juliaup` self-update fails | `~/.local/bin` and `~/.juliaup` are read-only by design. Update on the host. |
+| `./sandbox.sh` prints `herdr: detached from server` | Normal. No server was running, so herdr started one headless and detached. Attach with `./sandbox.sh session attach sandbox` from a plain terminal. |
+| I can't see `~/Documents`, `~/Downloads`, `~/.cache`, ... | By design. `$HOME` is masked wholesale; only allowlisted paths are visible. |
+| `fish` errors on `set -U` | `~/.config/fish` is bound read-write precisely so universal vars persist. If you still see it, relaunch. |
+| `git push` fails | SSH remotes: rely on the auto-mounted agent. HTTPS remotes: token stores are invisible by default, so use SSH remotes or bind the store explicitly. |
+| `bwrap: setting up uid map: Invalid argument` | Unprivileged user namespaces disabled (`cat /proc/sys/kernel/unprivileged_userns_clone` reads `0`). Enable it, or switch to a setuid bwrap install. |
+| `bwrap: Can't find source path .../pi-sandbox/...` | The `PRIVATE_DATA_DIRS` store does not exist and could not be created. This happens when launching from inside another sandbox where the parent directory is read-only. Launch from the host. |
+| A herdr server is already running on the host | No conflict. Different sockets; the sandbox starts its own server. |
+| `kaimon` fails with `ZMQ: Read-only file system` | Was `~/.cache/kaimon` read-only. Fixed by redirecting `XDG_CACHE_HOME` to the private `/tmp/xdg-cache`. Consequence: kaimon session state is per-sandbox and resets each launch; config is still shared via `~/.config/kaimon`. |
+| GUI or GPU app fails in a pane | Uncomment the Wayland, X11 or `/dev/nvidia*` extras. |
+| Sandbox died when I closed the terminal | `--die-with-parent` working as intended. The sandbox lives exactly as long as its launcher. |
 
 ## Requirements
 
-- bubblewrap (`pacman -S bubblewrap`, `apt install bubblewrap`, …)
+- bubblewrap (`pacman -S bubblewrap`, `apt install bubblewrap`, ...)
 - kernel with unprivileged user namespaces (the default on Arch, and on
   Ubuntu/Debian/Fedora unless explicitly restricted)
 
-Verified against: herdr 0.8.0, bubblewrap 0.11.2, pi from
+Verified against: herdr 0.8.0, bubblewrap 0.9.0 and 0.11.2, pi from
 `~/.local/lib/node_modules/@earendil-works/pi-coding-agent`.
