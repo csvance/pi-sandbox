@@ -66,6 +66,13 @@ WRITE_DIRS=(
   "$HOME/.cache/huggingface"  # HF model/dataset cache — shared read-write with
                           #   the host, so downloads persist across launches
                           #   (HF_HOME points here; see the env section below).
+  "$HOME/.local/share/uv" # uv-managed Python toolchains — shared read-write
+                          #   with the host, so sandboxed uv sees (and installs)
+                          #   the same interpreters as host uv; .venv symlinks
+                          #   into this dir keep resolving
+  "$HOME/.cache/uv"       # uv's package cache — persistent across launches
+                          #   (avoids re-downloading torch/timm every relaunch;
+                          #   UV_CACHE_DIR is pinned to it below)
 )
 
 # /tmp is a PRIVATE tmpfs: writable, but contents vanish when the sandbox
@@ -152,6 +159,11 @@ ARGS=(
                                          #   above), so downloads survive
                                          #   relaunches and are visible to
                                          #   host-side HF tools
+  --setenv UV_CACHE_DIR "$HOME/.cache/uv"  # uv package cache -> shared,
+                                         #   persistent dir (bound read-write
+                                         #   above); without this the
+                                         #   XDG_CACHE_HOME redirect would
+                                         #   make uv's cache ephemeral
   --setenv HERDR_SOCKET_PATH /tmp/herdr/herdr.sock
   --setenv HERDR_CLIENT_SOCKET_PATH /tmp/herdr/herdr-client.sock
   --setenv HERDR_SESSION "$HERDR_SANDBOX_SESSION"
