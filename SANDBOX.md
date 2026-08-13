@@ -41,7 +41,7 @@ Deny-by-default on all three. A leak on any one of them defeats the other two.
 | `~/.config/herdr` | read/write | herdr `config.toml`, server log |
 | `~/.herdr` | read/write | herdr session/data directory |
 | `~/.local/state/herdr` | read/write | herdr's agent-detection manifest cache (shared with host herdr; detection profiles, not personal data) |
-| `~/.pi/agent` | read/write | pi's agent state (auth, sessions, MCP config, plugins). pi is useless without it. |
+| `~/.pi/agent` | read/write | pi's agent state (auth, sessions, MCP config, plugins, skills). pi is useless without it. Skills are seeded here on first launch from `skills/` in this repo (see PI.md → Skills). |
 | `~/.config/kaimon` | read/write | Kaimon config: `projects.json`, `extensions.json`, `config.json` |
 | `~/.config/mcp` | **private seeded copy, read-only** | MCP server registrations (`mcp.json`) — the host's dir is **never bound**. Seeded from `MCP_DEFAULT` in `sandbox.sh` on first launch (same pattern as `~/.npmrc`; see "Sandbox-private persistent data"). A sandboxed agent can neither read host MCP configs (which may hold other tools' OAuth secrets or `command` entries) nor edit the registrations pi loads. |
 | `~/.cache/huggingface`, `~/.cache/uv`, `~/.local/share/uv` | read/write | model and package caches, shared with the host so downloads persist |

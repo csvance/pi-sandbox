@@ -21,7 +21,7 @@ and which plugins/extensions/skills are active.
 | `auth.json` | API credentials (currently: DeepSeek key). **Never commit or paste this.** |
 | `models-store.json` | model catalog: ids, cost, context window, thinking maps |
 | `extensions/` | local extensions — currently only herdr's integration |
-| `skills/` | local skills — currently `herdr.md` |
+| `skills/` | local skills — `herdr.md` + `workflow-orchestration/` (see Skills below) |
 | `npm/` | installed plugin packages (user scope) + their node_modules |
 | `sessions/` | persisted pi sessions |
 
@@ -182,7 +182,17 @@ section as `pi-agent-extensions:*`:
 | Skill | Source | Purpose |
 | --- | --- | --- |
 | `herdr` | `~/.pi/agent/skills/herdr.md` | Control the herdr terminal multiplexer (panes, tabs, workspaces, commands, other agents). Activated only when the user mentions herdr; requires `HERDR_ENV=1` |
+| `workflow-orchestration` | `~/.pi/agent/skills/workflow-orchestration/SKILL.md` (seeded on first launch from `skills/` in this repo) | Dispatching robust multi-agent workflows (`/workflow`): strict script-shape contract, tolerant strict-JSON agent handling, model tiers (`scout`/`worker`/`reviewer`/`synthesizer`), debugging + failed-run journal salvage |
 | `mcp-scripting` | bundled with the pi-mcp-adapter plugin (`~/.pi/agent/npm/node_modules/pi-mcp-adapter/skills/mcp-scripting/SKILL.md`) | Writing `mcpScript` JavaScript that discovers, inspects, and batches MCP tool calls |
+
+Skills are part of the **documented standard environment**: `sandbox.sh`
+ensures every skill in its `SKILL_SEEDS` list exists in the shared
+`~/.pi/agent/skills/` dir, copying from the repo bundle (`skills/<name>/`)
+on first launch when absent. Because `~/.pi/agent` is bound **read/write**
+(see below), the seeded files are visible inside the sandbox with **no extra
+bind** — the copy fires only when the target is missing, so a skill updated
+on the host is never overwritten. To change the seeded content, edit the
+bundle under `skills/` in this repo and delete the target dir to re-seed.
 
 (The `pi-subagents` skill and its prompt templates shipped with the old
 `pi-subagents` plugin and were removed with it.)
