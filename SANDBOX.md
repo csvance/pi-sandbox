@@ -43,6 +43,7 @@ Deny-by-default on all three. A leak on any one of them defeats the other two.
 | `~/.local/state/herdr` | read/write | herdr's agent-detection manifest cache (shared with host herdr; detection profiles, not personal data) |
 | `~/.pi/agent` | read/write | pi's agent state (auth, sessions, MCP config, plugins). pi is useless without it. |
 | `~/.config/kaimon` | read/write | Kaimon config: `projects.json`, `extensions.json`, `config.json` |
+| `~/.config/mcp` | **private seeded copy, read-only** | MCP server registrations (`mcp.json`) — the host's dir is **never bound**. Seeded from `MCP_DEFAULT` in `sandbox.sh` on first launch (same pattern as `~/.npmrc`; see "Sandbox-private persistent data"). A sandboxed agent can neither read host MCP configs (which may hold other tools' OAuth secrets or `command` entries) nor edit the registrations pi loads. |
 | `~/.cache/huggingface`, `~/.cache/uv`, `~/.local/share/uv` | read/write | model and package caches, shared with the host so downloads persist |
 | `~/.local/share/fish` | **private persistent copy** | fish history + state, stored at `~/.local/share/pi-sandbox/...`. Sandbox fish can neither read nor write the host's `fish_history`, and the copy survives restarts. |
 | `XDG_CACHE_HOME` | **private** (`/tmp/xdg-cache`) | Kaimon's cache: ZMQ IPC sockets, `kaimon.db`, agent logs. Redirected so the sandboxed kaimon can never attach to or stomp a kaimon/gate on the host (Kaimon binds fixed socket names with rm-first semantics). |
@@ -337,6 +338,12 @@ Two deliberate credential exceptions:
   tradeoff for push convenience, but it is a deliberate exception, not a free
   one. Comment the block out if you do not need to push from inside.
 
+`~/.config/mcp` is **not bound at all** — the sandbox gets a read-only seed
+from its private store instead (see "Sandbox-private persistent data"). The
+host's file may hold other tools' registrations — including OAuth secrets and
+`command` entries that spawn processes — so it is kept out of the sandbox
+entirely, and the registrations pi loads cannot be tampered with.
+
 The bind target is created under the masked `/run` by argument ordering, so the
 agent socket survives the `/run` tmpfs.
 
@@ -366,6 +373,13 @@ Currently used for:
   treatment since it is the shell actually used in panes.
 - **`~/.npmrc`** — the enforced npm config (see "Supply-chain hardening"),
   seeded from `NPMRC_DEFAULT` on first launch and bound read-only.
+- **`~/.config/mcp/mcp.json`** — MCP server registrations, seeded from
+  `MCP_DEFAULT` on first launch and bound read-only. Same isolation as
+  `~/.npmrc`, with an extra edge: mcp.json entries can spawn processes, and
+  the host's `~/.config/mcp` may hold other tools' registrations (including
+  OAuth secrets), so the sandbox must be able to neither read it nor modify
+  the registrations pi loads. The adapter only ever reads this file (its
+  overrides go to `.pi/mcp.json` / the agent dir), so read-only costs nothing.
 
 The store is created automatically by the first host-side launch.
 

@@ -157,6 +157,10 @@ WRITE_DIRS=(
                           #   data.
   "${GIT_BIND_DIRS[@]}"   # projects (SANDBOX_PROJECTS-scoped; default: all of ~/Git)
   "$HOME/.config/herdr"   # herdr config.toml + server log
+  # ~/.config/mcp is deliberately NOT here. MCP registrations are a read-only
+  # seed from the private store (see the mcp.json seed block below), never the
+  # host's dir: an rw bind would let a sandboxed agent read AND rewrite host
+  # MCP configs, and mcp.json entries can spawn processes.
   "$HOME/.pi/agent"       # pi auth (auth.json), sessions, mcp config
                           #   Without this, pi has no API keys and can't
                           #   persist sessions. Drop it only if you plan to
@@ -587,6 +591,26 @@ if [[ ! -f "$NPMRC_PRIVATE" ]]; then
     warn "cannot seed sandbox .npmrc at '$NPMRC_PRIVATE' (it will be absent inside the sandbox)"
 fi
 [[ -f "$NPMRC_PRIVATE" ]] && ARGS+=(--ro-bind "$NPMRC_PRIVATE" "$HOME/.npmrc")
+
+# --- ~/.config/mcp/mcp.json: sandbox-private seed; host's dir NEVER bound ----
+# Same pattern as ~/.npmrc above, with an extra edge: mcp.json entries can
+# spawn processes or carry OAuth secrets, so the host's ~/.config/mcp is
+# deliberately NOT mounted -- a sandboxed agent must be able to neither READ
+# host MCP registrations nor EDIT the ones pi loads (pi would happily connect
+# to a swapped URL or run a planted stdio server with full system access on
+# the next reload). The sandbox gets its own copy in the private store,
+# seeded on first launch with the Kaimon registration and bound READ-ONLY;
+# the adapter only ever READS the shared config (its overrides go to
+# .pi/mcp.json / the agent dir), so nothing breaks. To change the seed: edit
+# MCP_DEFAULT and delete the private copy once; it re-seeds next launch.
+MCP_DEFAULT=$'{\n  "mcpServers": {\n    "kaimon": {\n      "transport": "streamable-http",\n      "url": "http://localhost:2828/mcp",\n      "lifecycle": "eager"\n    }\n  }\n}'
+MCP_PRIVATE="$PRIVATE_DATA_ROOT/.config/mcp/mcp.json"
+if [[ ! -f "$MCP_PRIVATE" ]]; then
+  mkdir -p "$(dirname "$MCP_PRIVATE")" 2>/dev/null
+  printf '%s\n' "$MCP_DEFAULT" > "$MCP_PRIVATE" 2>/dev/null || \
+    warn "cannot seed '$MCP_PRIVATE' (kaimon will not be registered; --check will show it absent)"
+fi
+[[ -f "$MCP_PRIVATE" ]] && ARGS+=(--ro-bind "$MCP_PRIVATE" "$HOME/.config/mcp/mcp.json")
 
 ARGS+=("${EXTRA_ARGS[@]}")
 
