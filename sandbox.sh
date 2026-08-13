@@ -612,6 +612,18 @@ if [[ ! -f "$MCP_PRIVATE" ]]; then
 fi
 [[ -f "$MCP_PRIVATE" ]] && ARGS+=(--ro-bind "$MCP_PRIVATE" "$HOME/.config/mcp/mcp.json")
 
+# --- ~/.nanorc: injected fresh into the sandbox on EVERY launch ---
+# The host's ~/.nanorc is deliberately never bound (the home mask hides it
+# anyway). Instead the sandbox's own ~/.nanorc is written from scratch into
+# the private $HOME tmpfs on every launch via bwrap --file (fd 9, opened
+# below, just before the entry points). Inside the sandbox it is a plain
+# writable file: nano may extend it during a session, but those edits live in
+# the tmpfs and vanish with the sandbox — the host file is never touched,
+# and the next launch starts from exactly this content again. To change the
+# default, edit NANORC_CONTENT here.
+NANORC_CONTENT='include "/usr/share/nano/markdown.nanorc"'
+ARGS+=(--file 9 "$HOME/.nanorc")
+
 # --- Skills: the documented standard environment, seeded on first launch ---
 # `~/.pi/agent` is bound READ-WRITE (WRITE_DIRS above), so everything under
 # its skills/ dir is ALREADY visible inside the sandbox -- no bind needed.
@@ -648,6 +660,11 @@ ARGS+=("${EXTRA_ARGS[@]}")
 # argument: nested mounts keep their own flags, so /tmp, $HOME and every
 # read-write grant above stay writable. Verified.
 ARGS+=(--remount-ro /)
+
+# Open fd 9 for the --file injection above (--file 9 "$HOME/.nanorc").
+# Process substitution: the content lives on a pipe, so there is no temp
+# file on the host and nothing to clean up; bwrap reads it during setup.
+exec 9< <(printf '%s\n' "$NANORC_CONTENT")
 
 # ===========================================================================
 # ENTRY POINTS
@@ -725,6 +742,16 @@ done
 for p in $P_PRIVATE; do echo "  private   $p (sandbox's own persistent copy)"; done
 
 echo
+echo
+echo "--- injected files (written fresh into the sandbox every launch) ---"
+for f in "$HOME/.nanorc"; do
+  if [ -f "$f" ]; then
+    printf '  ok  %s: %s\n' "$f" "$(head -c 120 "$f" | tr '\n' ' ')"
+  else
+    echo "  ABSENT  $f"
+  fi
+done
+
 echo
 echo "--- skills (standard environment: seeded into the shared ~/.pi/agent) ---"
 ls "$HOME/.pi/agent/skills" 2>/dev/null | sed 's/^/  /' || echo "  (no skills dir)"

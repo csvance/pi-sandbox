@@ -29,6 +29,7 @@ Deny-by-default on all three. A leak on any one of them defeats the other two.
 | `$HOME` | **private tmpfs** | masked entirely. Only the rows below are bound back in. |
 | `~/Git` | read/write | projects. By default the whole tree; see "Per-project agent scoping" for the opt-in narrowed form. |
 | `~/.npmrc` | **private seeded copy, read-only** | never the host's file. See "Supply-chain hardening". |
+| `~/.nanorc` | **injected fresh, every launch** (plain file in the private tmpfs — not a bind) | nano config, currently `include "/usr/share/nano/markdown.nanorc"`. Written from `NANORC_CONTENT` in `sandbox.sh` via bwrap `--file`; writable during a session, but the host's `~/.nanorc` is never bound or touched and edits vanish with the sandbox. |
 | `~/.julia` | read/write | Julia depot (packages, registries, dev'd packages) |
 | `~/.juliaup` | read-only | julia binary + toolchains |
 | `~/.local/bin` | read-only | CLI symlinks: pi, herdr, claude, uv... |
