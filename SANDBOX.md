@@ -152,6 +152,17 @@ For a stricter variant that scopes the **herdr-level** sandbox to one project
 Unset (the default), the sandbox binds all of `~/Git` as before. The wrapper
 validates the project lives under `~/Git` and exists.
 
+On launch the wrapper also **seeds the default `AGENTS.md`** into the project
+(copy-if-absent, never overwrite) — the template is the `AGENTS.md` in the
+sandbox root (`~/Git/pi-sandbox/AGENTS.md`), which pi auto-loads at startup
+for sessions in that project. It carries the workflow-failure rule (salvage
+the run journal, then improve the workflow skill in pi-sandbox) plus short
+environment guidance. A project with its own `AGENTS.md` (or
+`AGENTS.override.md`, which pi prefers) is left untouched; edit the sandbox
+root template to change the default for future projects. The unscoped
+`./sandbox.sh` does **not** seed — it binds all of `~/Git` and must not
+create files in repos that never asked for them.
+
 ## Usage
 
 ```bash

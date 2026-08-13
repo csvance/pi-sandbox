@@ -16,6 +16,9 @@
 #
 # One sandbox/herdr instance per project: start a new one from each project
 # you want to work in. The default ./sandbox.sh (no scoping) is unchanged.
+#
+# On launch it also seeds the default AGENTS.md (agent instructions, incl. the
+# workflow-failure rule) into the project — copy-if-absent, never overwrite.
 
 set -euo pipefail
 
@@ -36,6 +39,16 @@ fi
 if [[ ! -d "$PROJECT" ]]; then
   echo "sandbox-project.sh: '$PROJECT' is not a directory" >&2
   exit 1
+fi
+
+# Seed the default AGENTS.md (agent instructions, incl. the workflow-failure
+# rule) into the project on its first scoped launch. Copy-if-absent, never
+# overwrite: a project that already has its own AGENTS.md (or AGENTS.override.md)
+# keeps it untouched. The template is the AGENTS.md next to this script — edit
+# that to change the default for every future project.
+if [[ ! -e "$PROJECT/AGENTS.md" && -f "$HERE/AGENTS.md" ]]; then
+  cp "$HERE/AGENTS.md" "$PROJECT/AGENTS.md"
+  echo "sandbox-project.sh: seeded AGENTS.md (default agent instructions) into $PROJECT"
 fi
 
 export SANDBOX_PROJECTS="$PROJECT"
