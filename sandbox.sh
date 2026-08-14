@@ -587,6 +587,28 @@ if [[ -f "$GH_TOKEN_FILE" ]]; then
   fi
 fi
 
+# --- pi web-search keys: provisioned from the repo's gitignored file ---------
+# Same model as the gh token above: the sandbox's pi web-search API keys
+# (~/.pi/web-search.json: openai, brave, exa, jina, ...) come from
+# .web-search.json next to this script (gitignored, host-side). On EVERY
+# launch it is copied into the sandbox-private store and bound READ-ONLY at
+# ~/.pi/web-search.json -- pi only reads it, and the agent can't swap keys
+# mid-session. The host's real ~/.pi/web-search.json is never bound (it may
+# hold keys for other tools). Without the file (or with it empty), pi web
+# search has no API keys.
+WS_SRC="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.web-search.json"
+WS_STORE="$PRIVATE_DATA_ROOT/.pi/web-search.json"
+if [[ -f "$WS_SRC" ]]; then
+  if [[ -s "$WS_SRC" ]]; then
+    mkdir -p "$(dirname "$WS_STORE")" 2>/dev/null
+    install -m 600 "$WS_SRC" "$WS_STORE" 2>/dev/null \
+      || warn "cannot copy web-search keys to '$WS_STORE'"
+    ARGS+=(--ro-bind "$WS_STORE" "$HOME/.pi/web-search.json")
+  else
+    warn "web-search keys file '$WS_SRC' is empty; pi web search will have no API keys"
+  fi
+fi
+
 # Read-only home allowlist, minus any entry nested inside a read-write grant.
 for entry in "${HOME_RO_RESOLVED[@]}"; do
   listed="${entry%%$'\t'*}"; real="${entry##*$'\t'}"
@@ -702,6 +724,7 @@ case "${1:-}" in
     printf '  BIND_SYS:              %s\n' "$BIND_SYS"
     printf '  ssh agent forwarded:   %s\n' "$([[ "$SSH_AGENT_BOUND" == 1 ]] && echo "yes, live signing oracle inside" || echo no)"
     printf '  gh token file:         %s\n' "$([[ -f "$GH_TOKEN_FILE" ]] && echo "present ($GH_TOKEN_FILE)" || echo 'absent (gh will have no token)')"
+    printf '  web-search keys file:  %s\n' "$([[ -f "$WS_SRC" ]] && echo "present ($WS_SRC)" || echo 'absent (pi web search has no keys)')"
     printf '\n'
 
     # Report each read-write grant once, by the name it has inside the sandbox
@@ -801,6 +824,14 @@ if [ -e "$HOME/.config/gh/hosts.yml" ]; then
   echo "  ok        ~/.config/gh -> sandbox-private store (rw, token provisioned from .gh-token)"
 else
   echo "  ok        ~/.config/gh -> sandbox-private store (rw, no token: .gh-token missing or empty at launch)"
+fi
+# ~/.pi/web-search.json is intentionally bound: a READ-ONLY seed of the
+# repo's gitignored .web-search.json (pi's web-search provider keys). The
+# host's file is never mounted.
+if [ -e "$HOME/.pi/web-search.json" ]; then
+  echo "  ok        ~/.pi/web-search.json -> sandbox-private store (ro, keys from .web-search.json)"
+else
+  echo "  ok        ~/.pi/web-search.json invisible (no .web-search.json at launch)"
 fi
 # Any home directory other than this user's should not be reachable at all.
 _others=$(ls -A /home 2>/dev/null | grep -Fxv "$(basename "$HOME")" | tr '\n' ' ')

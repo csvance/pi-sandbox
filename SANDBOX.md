@@ -43,6 +43,7 @@ Deny-by-default on all three. A leak on any one of them defeats the other two.
 | `~/.herdr` | read/write | herdr session/data directory |
 | `~/.local/state/herdr` | read/write | herdr's agent-detection manifest cache (shared with host herdr; detection profiles, not personal data) |
 | `~/.pi/agent` | read/write | pi's agent state (auth, sessions, MCP config, plugins). pi is useless without it. |
+| `~/.pi/web-search.json` | **private seeded copy, read-only** | pi web-search provider API keys (openai, brave, exa, jina, ...). The host's file is **never bound**; seeded on every launch from the gitignored `.web-search.json` next to `sandbox.sh` (same pattern as `~/.npmrc`). Read-only so the agent can't swap keys mid-session. |
 | `~/.config/kaimon` | read/write | Kaimon config: `projects.json`, `extensions.json`, `config.json` |
 | `~/.config/mcp` | **private seeded copy, read-only** | MCP server registrations (`mcp.json`) — the host's dir is **never bound**. Seeded from `MCP_DEFAULT` in `sandbox.sh` on first launch (same pattern as `~/.npmrc`; see "Sandbox-private persistent data"). A sandboxed agent can neither read host MCP configs (which may hold other tools' OAuth secrets or `command` entries) nor edit the registrations pi loads. |
 | `~/.cache/huggingface`, `~/.cache/uv`, `~/.local/share/uv` | read/write | model and package caches, shared with the host so downloads persist |
@@ -339,7 +340,7 @@ invisible. Follow "the one rule" above for every edit. Credential locations
 (shell and agent secrets, git token stores, browser profiles, password vaults,
 cloud credentials, dotfile secrets) are intentionally not enumerated here.
 
-Three deliberate credential exceptions:
+Four deliberate credential exceptions:
 
 - **pi's agent state** is bound read-write by design. It is pi's own credential
   store, so the allowlist entry must stay.
@@ -348,6 +349,10 @@ Three deliberate credential exceptions:
   `~/.config/gh` is never bound, so a write-scoped host token can never leak
   into the sandbox and a sandboxed agent can never touch the host's gh auth.
   The sandbox sees only the read-only token you keep in `.gh-token`.
+- **pi's web-search keys** (`~/.pi/web-search.json`) are a read-only seed
+  from the repo's gitignored `.web-search.json` file (see "Sandbox-private
+  persistent data"): the host's file is never bound, so the agent can
+  neither read host-side keys for other tools nor swap the provisioned ones.
 - **The ssh agent** is auto-mounted read-only when the parent exports
   `SSH_AUTH_SOCK`, so `git push` works without binding any host SSH state and
   without the private key ever entering the sandbox. Understand what it grants:
@@ -396,6 +401,10 @@ Currently used for:
   Read/write (gh writes `config.yml`); `hosts.yml` is re-seeded each launch,
   so in-session token changes don't stick. No `.gh-token` (or an empty one)
   means gh has no token.
+- **`~/.pi/web-search.json`** — pi's web-search provider API keys, seeded on
+  every launch from the repo's gitignored `.web-search.json` file (next to
+  `sandbox.sh`) and bound read-only (same pattern as `~/.npmrc`). The
+  host's file is never bound.
 - **`~/.npmrc`** — the enforced npm config (see "Supply-chain hardening"),
   seeded from `NPMRC_DEFAULT` on first launch and bound read-only.
 - **`~/.config/mcp/mcp.json`** — MCP server registrations, seeded from

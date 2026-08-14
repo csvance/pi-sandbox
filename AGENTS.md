@@ -24,3 +24,11 @@ Rules for the token:
   attempt write operations; they fail with 403. Use SSH remotes for git push.
 - If `gh` reports no auth inside the sandbox, `.gh-token` is missing or empty
   — check it on the host and relaunch.
+
+## Web search API keys
+
+pi's web-search provider keys (`~/.pi/web-search.json`: openai, brave, exa,
+jina, ...) are provisioned the same way: the gitignored `.web-search.json`
+file next to `sandbox.sh` is copied into the sandbox-private store on every
+launch and bound read-only. **Never print, export, or commit those keys**
+either; rotate by editing `.web-search.json` and relaunching.
