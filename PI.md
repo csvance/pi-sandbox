@@ -21,7 +21,7 @@ and which plugins/extensions/skills are active.
 | `auth.json` | API credentials (currently: DeepSeek key). **Never commit or paste this.** |
 | `models-store.json` | model catalog: ids, cost, context window, thinking maps |
 | `extensions/` | local extensions — currently only herdr's integration |
-| `skills/` | local skills — `herdr.md` + `workflow-orchestration/` (see Skills below) |
+| `skills/` | local skills — currently `herdr.md` |
 | `npm/` | installed plugin packages (user scope) + their node_modules |
 | `sessions/` | persisted pi sessions |
 
@@ -112,13 +112,14 @@ Declared in `settings.json` → `packages` (user scope, installed under
 | Package | Version | What it does |
 | --- | --- | --- |
 | `npm:pi-mcp-adapter` | 2.20.1 | MCP client extension — connects pi to any MCP server (this is what talks to Kaimon). Replaces the older `pi-mcp-extension`; adds the `/mcp` panel, `/mcp setup`, OAuth flows, host-config discovery, and the `mcp-scripting` skill |
-| `npm:pi-agent-extensions` | 0.5.2 | Meta package: **17 extensions + 4 themes** for pi in one install (see Extensions below) |
+| `npm:pi-subagents` | 0.42.1 | Subagent delegation: single-agent, parallel, scripted, async and coordinated subagent workflows; ships the `pi-subagents` skill + prompt templates |
+| `../../Git/pi-plan-ng` | 0.1.0 (local path) | Dev-installed from the pi-plan-ng repo (`pi.extensions: ["./index.ts"]`): safety-gated plan mode with the command-parsing gate. Edits to `~/Git/pi-plan-ng` apply directly — no reinstall step |
 | `npm:pi-deepseek-search` | 1.0.15 | Zero-config web search for pi via DeepSeek's server-side search (`web_search_20260209`); DeepSeek models only |
 
 Previously installed, now removed: `pi-mcp-extension` (superseded by
-`pi-mcp-adapter`) and `pi-subagents` + `@piex-dev/plan` (their delegation /
-plan-mode / todos surface is covered by `pi-agent-extensions`' `workflow` /
-`loop` / `todos` extensions).
+`pi-mcp-adapter`), `pi-agent-extensions` (removed 2026-08; its delegation /
+plan / todos surface is now covered by `pi-subagents` + the local
+`pi-plan-ng` plugin), and `@piex-dev/plan`.
 
 ### Management
 
@@ -126,7 +127,6 @@ plan-mode / todos surface is covered by `pi-agent-extensions`' `workflow` /
 pi list                      # show installed packages
 pi install npm:@scope/pkg    # add one (user scope by default; -l for project)
 pi remove npm:@scope/pkg
-pi update npm:pi-agent-extensions   # update one package
 pi update --extensions       # update plugins only
 pi update --models           # refresh model catalogs
 pi update --all              # update pi + plugins + reconcile git refs
@@ -146,56 +146,16 @@ means a rogue plugin is contained to the sandbox boundary (see SANDBOX.md).
   by herdr; reinstalling or updating the integration overwrites this file —
   add custom hooks/plugins beside it instead of editing it.*
 
-### pi-agent-extensions (17 extensions, 4 themes)
-
-A meta package: one `pi install npm:pi-agent-extensions` registers everything
-below (the package's `pi.extensions` field declares them; each lives under the
-package's `extensions/` dir). They show up in the `[Extensions]` startup
-section as `pi-agent-extensions:*`:
-
-| Extension | Type | What it does | Status |
-| --- | --- | --- | --- |
-| `sessions` | command | quick session picker (`/sessions`) | stable |
-| `ask_user` | tool | LLM can ask structured questions | beta |
-| `handoff` | command | goal-driven context transfer (`/handoff`) | stable |
-| `whimsical` | UI | context-aware loading messages & exit | stable |
-| `files` | tool | unified file browser + git integration | stable |
-| `notify` | automatic | OSC 777 desktop notification after agent turns | stable |
-| `context` | command | context breakdown dashboard (`/context-simple`) | stable |
-| `review` | tool | interactive code review | stable |
-| `loop` | tool | test / condition / self-driven iteration loops | stable |
-| `todos` | tool | file-based todo list management | stable |
-| `control` | RPC | inter-session communication & control | beta |
-| `answer` | tool | structured Q&A for complex queries | beta |
-| `cwd_history` | tracker | tracks directory changes in context | stable |
-| `btw` | command | ephemeral side questions without session history | stable |
-| `powerline-footer` | UI | powerline-style footer bar (git branch, dirty-file count, model, context, cost, timer) | stable |
-| `session-breakdown` | command | session analytics dashboard | stable |
-| `workflow` | tool/command | model-routed multi-agent workflows (`/workflow`) | beta |
-
-**Themes** (declared in the package's `pi.themes` field; pick one with
-`settings.json → theme` or `/theme`): `nightowl`, `p10k-inspired`,
-`ghostty-dark`, `fzf-bat`.
-
 ## Skills
 
 | Skill | Source | Purpose |
 | --- | --- | --- |
 | `herdr` | `~/.pi/agent/skills/herdr.md` | Control the herdr terminal multiplexer (panes, tabs, workspaces, commands, other agents). Activated only when the user mentions herdr; requires `HERDR_ENV=1` |
-| `workflow-orchestration` | `~/.pi/agent/skills/workflow-orchestration/SKILL.md` (seeded on first launch from `skills/` in this repo) | Dispatching robust multi-agent workflows (`/workflow`): strict script-shape contract, tolerant strict-JSON agent handling, model tiers (`scout`/`worker`/`reviewer`/`synthesizer`), debugging + failed-run journal salvage |
+| `pi-subagents` | bundled with the pi-subagents plugin (`~/.pi/agent/npm/node_modules/pi-subagents/skills/pi-subagents/SKILL.md`) | Delegating work to builtin or custom subagents: single-agent, parallel, scripted, async, forked-context and coordinated workflows |
 | `mcp-scripting` | bundled with the pi-mcp-adapter plugin (`~/.pi/agent/npm/node_modules/pi-mcp-adapter/skills/mcp-scripting/SKILL.md`) | Writing `mcpScript` JavaScript that discovers, inspects, and batches MCP tool calls |
 
-Skills are part of the **documented standard environment**: `sandbox.sh`
-ensures every skill in its `SKILL_SEEDS` list exists in the shared
-`~/.pi/agent/skills/` dir, copying from the repo bundle (`skills/<name>/`)
-on first launch when absent. Because `~/.pi/agent` is bound **read/write**
-(see below), the seeded files are visible inside the sandbox with **no extra
-bind** — the copy fires only when the target is missing, so a skill updated
-on the host is never overwritten. To change the seeded content, edit the
-bundle under `skills/` in this repo and delete the target dir to re-seed.
-
-(The `pi-subagents` skill and its prompt templates shipped with the old
-`pi-subagents` plugin and were removed with it.)
+(The `pi-subagents` skill ships with the plugin again since it was reinstalled;
+its prompt templates live under the package's `prompts/` dir.)
 
 ## Settings summary (`settings.json`)
 
@@ -206,8 +166,8 @@ bundle under `skills/` in this repo and delete the target dir to re-seed.
   "defaultModel": "deepseek-v4-flash",
   "defaultThinkingLevel": "high",
   "hideThinkingBlock": true,
-  "packages": ["npm:pi-deepseek-search", "npm:pi-agent-extensions",
-               "npm:pi-mcp-adapter"]
+  "packages": ["npm:pi-deepseek-search", "npm:pi-mcp-adapter",
+               "../../Git/pi-plan-ng", "npm:pi-subagents"]
 }
 ```
 

@@ -624,34 +624,6 @@ fi
 NANORC_CONTENT='include "/usr/share/nano/markdown.nanorc"'
 ARGS+=(--file 9 "$HOME/.nanorc")
 
-# --- Skills: the documented standard environment, seeded on first launch ---
-# `~/.pi/agent` is bound READ-WRITE (WRITE_DIRS above), so everything under
-# its skills/ dir is ALREADY visible inside the sandbox -- no bind needed.
-# What this block adds is a guarantee: every skill in SKILL_SEEDS is ensured
-# to exist in the shared agent dir, copied from the repo bundle (skills/<name>/
-# next to this script) on first launch when absent. The copy fires only when
-# the target is missing, so a skill updated on the host is never overwritten,
-# and a fresh host (or a wiped ~/.pi/agent) still gets the standard skill set
-# on the first ./sandbox.sh. To change the seeded content: edit the bundle
-# under skills/ in this repo (delete the target dir to force a re-seed).
-SKILL_SEEDS=(
-  workflow-orchestration   # multi-agent workflow orchestration guidance (see PI.md)
-)
-SKILLS_SRC="$(cd "$(dirname "$0")" && pwd)/skills"
-for _skill in "${SKILL_SEEDS[@]}"; do
-  [[ -n "$_skill" ]] || continue
-  _target="$HOME/.pi/agent/skills/$_skill"
-  [[ -e "$_target" ]] && continue   # already provisioned; never overwrite
-  if [[ ! -d "$SKILLS_SRC/$_skill" ]]; then
-    warn "skill seed source '$SKILLS_SRC/$_skill' missing (skill '$_skill' will be absent inside the sandbox)"
-    continue
-  fi
-  mkdir -p "$(dirname "$_target")" 2>/dev/null
-  cp -r "$SKILLS_SRC/$_skill" "$_target" 2>/dev/null || \
-    warn "cannot seed skill '$_skill' into '$_target' (it will be absent inside the sandbox)"
-done
-unset _skill _target
-
 ARGS+=("${EXTRA_ARGS[@]}")
 
 # Dropping `--ro-bind / /` leaves bwrap's own root tmpfs WRITABLE, so an agent
@@ -704,7 +676,6 @@ case "${1:-}" in
     probe_pre+="P_PRIVATE='${PRIVATE_DATA_DIRS[*]}'"$'\n'
     probe_pre+="P_TOOLS='${CHECK_TOOLS[*]}'"$'\n'
     probe_pre+="P_RUNTIME='$RUNTIME_DIR'"$'\n'
-    probe_pre+="P_SKILLS='${SKILL_SEEDS[*]}'"$'\n'
 
     probe_body=$(cat <<'PROBE'
 echo "=== inside the sandbox ==="
@@ -742,24 +713,12 @@ done
 for p in $P_PRIVATE; do echo "  private   $p (sandbox's own persistent copy)"; done
 
 echo
-echo
 echo "--- injected files (written fresh into the sandbox every launch) ---"
 for f in "$HOME/.nanorc"; do
   if [ -f "$f" ]; then
     printf '  ok  %s: %s\n' "$f" "$(head -c 120 "$f" | tr '\n' ' ')"
   else
     echo "  ABSENT  $f"
-  fi
-done
-
-echo
-echo "--- skills (standard environment: seeded into the shared ~/.pi/agent) ---"
-ls "$HOME/.pi/agent/skills" 2>/dev/null | sed 's/^/  /' || echo "  (no skills dir)"
-for s in $P_SKILLS; do
-  if [ -f "$HOME/.pi/agent/skills/$s/SKILL.md" ] || [ -f "$HOME/.pi/agent/skills/$s" ]; then
-    echo "  seeded     $s"
-  else
-    echo "  MISSING    $s"
   fi
 done
 

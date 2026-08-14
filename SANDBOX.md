@@ -42,7 +42,7 @@ Deny-by-default on all three. A leak on any one of them defeats the other two.
 | `~/.config/herdr` | read/write | herdr `config.toml`, server log |
 | `~/.herdr` | read/write | herdr session/data directory |
 | `~/.local/state/herdr` | read/write | herdr's agent-detection manifest cache (shared with host herdr; detection profiles, not personal data) |
-| `~/.pi/agent` | read/write | pi's agent state (auth, sessions, MCP config, plugins, skills). pi is useless without it. Skills are seeded here on first launch from `skills/` in this repo (see PI.md → Skills). |
+| `~/.pi/agent` | read/write | pi's agent state (auth, sessions, MCP config, plugins). pi is useless without it. |
 | `~/.config/kaimon` | read/write | Kaimon config: `projects.json`, `extensions.json`, `config.json` |
 | `~/.config/mcp` | **private seeded copy, read-only** | MCP server registrations (`mcp.json`) — the host's dir is **never bound**. Seeded from `MCP_DEFAULT` in `sandbox.sh` on first launch (same pattern as `~/.npmrc`; see "Sandbox-private persistent data"). A sandboxed agent can neither read host MCP configs (which may hold other tools' OAuth secrets or `command` entries) nor edit the registrations pi loads. |
 | `~/.cache/huggingface`, `~/.cache/uv`, `~/.local/share/uv` | read/write | model and package caches, shared with the host so downloads persist |
@@ -156,13 +156,13 @@ validates the project lives under `~/Git` and exists.
 On launch the wrapper also **seeds the default `AGENTS.md`** into the project
 (copy-if-absent, never overwrite) — the template is the `AGENTS.md` in the
 sandbox root (`~/Git/pi-sandbox/AGENTS.md`), which pi auto-loads at startup
-for sessions in that project. It carries the workflow-failure rule (salvage
-the run journal, then improve the workflow skill in pi-sandbox) plus short
-environment guidance. A project with its own `AGENTS.md` (or
-`AGENTS.override.md`, which pi prefers) is left untouched; edit the sandbox
-root template to change the default for future projects. The unscoped
-`./sandbox.sh` does **not** seed — it binds all of `~/Git` and must not
-create files in repos that never asked for them.
+for sessions in that project. The template is currently an **empty starting
+point**: projects get a file they can fill in with their own rules, and no
+stale defaults. A project with its own `AGENTS.md` (or `AGENTS.override.md`,
+which pi prefers) is left untouched; edit the sandbox root template to change
+the default for future projects. The unscoped `./sandbox.sh` does **not**
+seed — it binds all of `~/Git` and must not create files in repos that never
+asked for them.
 
 ## Usage
 
