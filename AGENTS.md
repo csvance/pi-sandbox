@@ -1,60 +1,31 @@
-# Agent instructions
+# pi-sandbox repo instructions
 
-## Scratch space (persistent across launches)
+Instructions for working in **this repo** (`~/Git/pi-sandbox`), which
+contains the sandbox itself: the bwrap policy, the launch wrappers, and
+their documentation. Sandbox-global agent rules (scratch space, gh, secret
+provisioning) live in `AGENTS.sandbox.md` and are installed to
+`~/.pi/agent/AGENTS.md` (pi's global context file) on every launch.
 
-Use a scratch directory **inside the project you are working on** — not
-`/tmp` (the sandbox gives it a fresh private tmpfs on every relaunch; its
-contents vanish when the sandbox exits) and not unlisted `$HOME` paths (also
-wiped). The project directory is bound read/write into the sandbox, so files
-in it survive relaunches.
+## Layout
 
-- Create and use `.scratch/` in the project root (e.g. `mkdir -p .scratch`
-  in `~/Git/<project>`); create it if it is missing.
-- Add `.scratch/` to the project's `.gitignore` when you create it (scratch
-  is throwaway by definition — unless you intend to commit what you store).
-- Use it for intermediate files, downloaded artifacts, build outputs,
-  caches, notes-to-self, and anything you need to keep between launches.
-- Treat it as throwaway: clean up stale files, don't rely on it as the
-  permanent home of anything important (that belongs in tracked files).
+- `sandbox.sh` — the sandbox policy: mount allowlists, environment allowlist
+  (`--clearenv` + `ENV_PASS`), credential provisioning from `secrets/`,
+  `--check` probe and `--print-policy`
+- `sandbox-project.sh` — scoped wrapper: binds only one project; seeds a
+  blank `AGENTS.md` into new projects
+- `SANDBOX.md` — the policy documentation; keep it in sync with script edits
+- `PI.md` — pi's integration notes inside this sandbox
+- `HERDR.md`, `README.md` — herdr integration and repo overview
+- `secrets/` — gitignored credentials, provisioned into the sandbox at
+  launch (never commit anything in it)
 
-## GitHub CLI (`gh`)
+## Editing and testing
 
-`gh` is installed and configured with a **read-only, public-repos-only**
-personal access token. Use it to fetch GitHub information: repos, issues,
-PRs, releases, search, gists, API calls, etc. Examples:
-
-```bash
-gh repo view owner/repo --json name,description,stargazerCount,updatedAt
-gh issue list -R owner/repo --state open --limit 20
-gh search code "pattern" --repo owner/repo
-gh api repos/owner/repo/releases/latest
-```
-
-Rules for the token:
-
-- The token is provisioned into the sandbox on **every launch** from the
-  repo's gitignored `secrets/.gh-token` file (`~/Git/pi-sandbox/secrets/.gh-token`:
-  one line, raw token). To rotate it, edit that file and relaunch the sandbox.
-- **Never print, export, or commit the token.** Treat it as a credential even
-  though it is read-only. The whole `secrets/` directory is gitignored;
-  don't work around that.
-- The token cannot write anything (no pushes, no issue/PR mutations) — don't
-  attempt write operations; they fail with 403. Use SSH remotes for git push.
-- If `gh` reports no auth inside the sandbox, `secrets/.gh-token` is missing
-  or empty — check it on the host and relaunch.
-
-## Web search API keys
-
-pi's web-search provider keys (`~/.pi/web-search.json`: openai, brave, exa,
-jina, ...) are provisioned the same way: the gitignored `secrets/.web-search.json`
-file is copied into the sandbox-private store on every launch and bound
-read-only. **Never print, export, or commit those keys** either; rotate by
-editing `secrets/.web-search.json` and relaunching.
-
-## `ZAI_API_KEY`
-
-`ZAI_API_KEY` is set in the sandbox environment on every launch from the
-gitignored `secrets/.zai-api-key` file (one line, raw key). It is
-deliberately never taken from the parent shell's environment (the sandbox
-refuses credential-shaped variables from there). **Never print, export, or
-commit it**; rotate by editing `secrets/.zai-api-key` and relaunching.
+- After editing `sandbox.sh` or `sandbox-project.sh`: run `bash -n` on both.
+- After a policy change, run `./sandbox.sh --check` **on the host** and read
+  the probe output: mount table, credential channels, surviving environment
+  (credential-shaped values are redacted).
+- `./sandbox.sh --print-policy` prints the assembled bwrap command without
+  launching.
+- Docs mirror the policy: change `SANDBOX.md` in the same change as the
+  script.

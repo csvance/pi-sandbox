@@ -630,6 +630,22 @@ if [[ -f "$WS_SRC" ]]; then
   fi
 fi
 
+# --- global AGENTS.md: synced from the repo on every launch ------------------
+# AGENTS.sandbox.md next to this script is the canonical SANDBOX-GLOBAL agent
+# instructions (scratch space, gh, secrets...). On EVERY launch it is copied
+# to ~/.pi/agent/AGENTS.md -- pi's GLOBAL context file, loaded for every
+# session whatever the project (~/.pi/agent is already bound rw into the
+# sandbox). Edit AGENTS.sandbox.md; direct edits to the global file are
+# clobbered on the next launch by design. The repo's own AGENTS.md is the
+# project-local file for pi-sandbox work and is NOT installed anywhere.
+AGENTS_SANDBOX="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/AGENTS.sandbox.md"
+AGENTS_GLOBAL="$HOME/.pi/agent/AGENTS.md"
+if [[ -f "$AGENTS_SANDBOX" ]]; then
+  mkdir -p "$(dirname "$AGENTS_GLOBAL")" 2>/dev/null
+  install -m 644 "$AGENTS_SANDBOX" "$AGENTS_GLOBAL" 2>/dev/null \
+    || warn "cannot sync global AGENTS.md to '$AGENTS_GLOBAL'"
+fi
+
 # Read-only home allowlist, minus any entry nested inside a read-write grant.
 for entry in "${HOME_RO_RESOLVED[@]}"; do
   listed="${entry%%$'\t'*}"; real="${entry##*$'\t'}"
@@ -747,6 +763,7 @@ case "${1:-}" in
     printf '  gh token file:         %s\n' "$([[ -f "$GH_TOKEN_FILE" ]] && echo "present ($GH_TOKEN_FILE)" || echo 'absent (gh will have no token)')"
     printf '  web-search keys file:  %s\n' "$([[ -f "$WS_SRC" ]] && echo "present ($WS_SRC)" || echo 'absent (pi web search has no keys)')"
     printf '  zai key file:          %s\n' "$([[ -f "$ZAI_KEY_FILE" ]] && echo "present ($ZAI_KEY_FILE)" || echo 'absent (ZAI_API_KEY not set)')"
+    printf '  global AGENTS.md:      %s\n' "$([[ -f "$AGENTS_SANDBOX" ]] && echo "synced from $AGENTS_SANDBOX" || echo 'absent (no AGENTS.sandbox.md)')"
     printf '\n'
 
     # Report each read-write grant once, by the name it has inside the sandbox

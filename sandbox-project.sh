@@ -17,8 +17,9 @@
 # One sandbox/herdr instance per project: start a new one from each project
 # you want to work in. The default ./sandbox.sh (no scoping) is unchanged.
 #
-# On launch it also seeds the default AGENTS.md (agent-instructions template,
-# currently empty) into the project — copy-if-absent, never overwrite.
+# On launch it also seeds the default AGENTS.md (the agent-instructions
+# template AGENTS.template.md, deliberately empty) into the project —
+# copy-if-absent, never overwrite.
 
 set -euo pipefail
 
@@ -42,12 +43,15 @@ if [[ ! -d "$PROJECT" ]]; then
 fi
 
 # Seed the default AGENTS.md (the agent-instructions template next to this
-# script — currently empty) into the project on its first scoped launch.
-# Copy-if-absent, never overwrite: a project that already has its own
-# AGENTS.md (or AGENTS.override.md) keeps it untouched. Edit the template to
-# change the default for every future project.
-if [[ ! -e "$PROJECT/AGENTS.md" && -f "$HERE/AGENTS.md" ]]; then
-  cp "$HERE/AGENTS.md" "$PROJECT/AGENTS.md"
+# script) into the project on its first scoped launch. The template is
+# AGENTS.template.md -- deliberately EMPTY: sandbox-global rules are installed
+# separately to ~/.pi/agent/AGENTS.md at sandbox launch, so projects only get
+# a blank file to fill in with their own rules. Copy-if-absent, never
+# overwrite: a project that already has its own AGENTS.md (or
+# AGENTS.override.md) keeps it untouched. Edit the template to change the
+# default for every future project.
+if [[ ! -e "$PROJECT/AGENTS.md" && -f "$HERE/AGENTS.template.md" ]]; then
+  cp "$HERE/AGENTS.template.md" "$PROJECT/AGENTS.md"
   echo "sandbox-project.sh: seeded AGENTS.md (default agent instructions) into $PROJECT"
 fi
 

@@ -156,15 +156,16 @@ Unset (the default), the sandbox binds all of `~/Git` as before. The wrapper
 validates the project lives under `~/Git` and exists.
 
 On launch the wrapper also **seeds the default `AGENTS.md`** into the project
-(copy-if-absent, never overwrite) — the template is the `AGENTS.md` in the
-sandbox root (`~/Git/pi-sandbox/AGENTS.md`), which pi auto-loads at startup
-for sessions in that project. The template is currently an **empty starting
-point**: projects get a file they can fill in with their own rules, and no
-stale defaults. A project with its own `AGENTS.md` (or `AGENTS.override.md`,
-which pi prefers) is left untouched; edit the sandbox root template to change
-the default for future projects. The unscoped `./sandbox.sh` does **not**
-seed — it binds all of `~/Git` and must not create files in repos that never
-asked for them.
+(copy-if-absent, never overwrite) — the template is `AGENTS.template.md` in
+the sandbox root (`~/Git/pi-sandbox/AGENTS.template.md`), which is
+**deliberately empty**: sandbox-global rules (scratch space, gh, secrets)
+are installed separately to `~/.pi/agent/AGENTS.md` at every sandbox launch
+(see "Sandbox-private persistent data"), so projects only get a blank file
+they can fill in with their own rules — no stale defaults. A project with its
+own `AGENTS.md` (or `AGENTS.override.md`, which pi prefers) is left
+untouched; edit the template to change the default for future projects. The
+unscoped `./sandbox.sh` does **not** seed — it binds all of `~/Git` and must
+not create files in repos that never asked for them.
 
 ## Usage
 
@@ -401,6 +402,13 @@ The provisioned credentials themselves live in the repo's gitignored
 `secrets/` directory (next to `sandbox.sh`) — host-side only, never bound
 into the sandbox: `secrets/.gh-token`, `secrets/.web-search.json`,
 `secrets/.zai-api-key`.
+
+The repo's `AGENTS.sandbox.md` is also copied on every launch to
+`~/.pi/agent/AGENTS.md` — pi's global context file, loaded for every session
+whatever the project. The repo copy is the source of truth; direct edits to
+the global file are overwritten at the next launch. (The repo's own
+`AGENTS.md` is pi-sandbox-specific and is not installed; new projects get a
+blank `AGENTS.md` seeded by `sandbox-project.sh` from `AGENTS.template.md`.)
 
 Currently used for:
 

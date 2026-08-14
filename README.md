@@ -28,8 +28,10 @@ per-project containment for agents.
 | File | Contents |
 | --- | --- |
 | `sandbox.sh` | the bubblewrap policy: mounts, env allowlist, hardened defaults, `--check` probe |
-| `sandbox-project.sh` | optional wrapper: scope the whole sandbox to one project; seeds the default `AGENTS.md` into the project |
-| `AGENTS.md` | default agent-instructions template (currently empty), copied into every new sandbox project by `sandbox-project.sh` — pi auto-loads it at startup |
+| `sandbox-project.sh` | optional wrapper: scope the whole sandbox to one project; seeds a blank `AGENTS.md` into the project |
+| `AGENTS.md` | pi-sandbox repo instructions (this repo only) |
+| `AGENTS.sandbox.md` | sandbox-global agent instructions — copied to `~/.pi/agent/AGENTS.md` (pi's global context file) on every sandbox launch |
+| `AGENTS.template.md` | deliberately empty seed template, copied into every new sandbox project by `sandbox-project.sh` |
 | `README.md` | this overview |
 | `HERDR.md` | herdr session layout + the kaimon auto-start hook |
 | `SANDBOX.md` | the sandbox policy, deep dive: mounts, env, hardening, troubleshooting |

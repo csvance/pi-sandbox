@@ -23,6 +23,7 @@ and which plugins/extensions/skills are active.
 | `extensions/` | local extensions — currently only herdr's integration |
 | `skills/` | local skills — currently `herdr.md` |
 | `npm/` | installed plugin packages (user scope) + their node_modules |
+| `AGENTS.md` | sandbox-global agent instructions — synced from the repo's `AGENTS.sandbox.md` on every sandbox launch |
 | `sessions/` | persisted pi sessions |
 
 ## MCP setup
