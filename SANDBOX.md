@@ -14,7 +14,7 @@ Deny-by-default on all three. A leak on any one of them defeats the other two.
 | --- | --- |
 | **Filesystem** | There is no read-only bind of `/`. The root filesystem is *enumerated*, not inherited: only `/usr`, `/etc`, `/proc`, `/dev`, `/tmp` and the short `ROOT_READONLY` list are visible. `$HOME` is masked with a private tmpfs and rebound one path at a time. |
 | **Runtime** | `/run` is a private tmpfs, so the session bus, the keyring ssh/control sockets, the gpg agent socket and any docker socket are unreachable by path. |
-| **Environment** | `--clearenv`, then only the names in `ENV_PASS` are re-set. A token exported in the launching shell never enters the sandbox. |
+| **Environment** | `--clearenv`, then only the names in `ENV_PASS` are re-set. A token exported in the launching shell never enters the sandbox. `ZAI_API_KEY` is the one exception: set unconditionally from the gitignored `secrets/.zai-api-key` file (see "Environment"). |
 
 ## The policy
 
@@ -43,12 +43,12 @@ Deny-by-default on all three. A leak on any one of them defeats the other two.
 | `~/.herdr` | read/write | herdr session/data directory |
 | `~/.local/state/herdr` | read/write | herdr's agent-detection manifest cache (shared with host herdr; detection profiles, not personal data) |
 | `~/.pi/agent` | read/write | pi's agent state (auth, sessions, MCP config, plugins). pi is useless without it. |
-| `~/.pi/web-search.json` | **private seeded copy, read-only** | pi web-search provider API keys (openai, brave, exa, jina, ...). The host's file is **never bound**; seeded on every launch from the gitignored `.web-search.json` next to `sandbox.sh` (same pattern as `~/.npmrc`). Read-only so the agent can't swap keys mid-session. |
+| `~/.pi/web-search.json` | **private seeded copy, read-only** | pi web-search provider API keys (openai, brave, exa, jina, ...). The host's file is **never bound**; seeded on every launch from the gitignored `secrets/.web-search.json` (same pattern as `~/.npmrc`). Read-only so the agent can't swap keys mid-session. |
 | `~/.config/kaimon` | read/write | Kaimon config: `projects.json`, `extensions.json`, `config.json` |
 | `~/.config/mcp` | **private seeded copy, read-only** | MCP server registrations (`mcp.json`) — the host's dir is **never bound**. Seeded from `MCP_DEFAULT` in `sandbox.sh` on first launch (same pattern as `~/.npmrc`; see "Sandbox-private persistent data"). A sandboxed agent can neither read host MCP configs (which may hold other tools' OAuth secrets or `command` entries) nor edit the registrations pi loads. |
 | `~/.cache/huggingface`, `~/.cache/uv`, `~/.local/share/uv` | read/write | model and package caches, shared with the host so downloads persist |
 | `~/.local/share/fish` | **private persistent copy** | fish history + state, stored at `~/.local/share/pi-sandbox/...`. Sandbox fish can neither read nor write the host's `fish_history`, and the copy survives restarts. |
-| `~/.config/gh` | **private persistent copy** | gh CLI auth. The host's real `~/.config/gh` is **never bound** (it may hold a write-scoped token). Provisioned on **every launch** from the repo's gitignored `.gh-token` file (next to `sandbox.sh`); read/write so gh can write `config.yml`, but `hosts.yml` is re-seeded each launch. |
+| `~/.config/gh` | **private persistent copy** | gh CLI auth. The host's real `~/.config/gh` is **never bound** (it may hold a write-scoped token). Provisioned on **every launch** from the repo's gitignored `secrets/.gh-token`; read/write so gh can write `config.yml`, but `hosts.yml` is re-seeded each launch. |
 | `XDG_CACHE_HOME` | **private** (`/tmp/xdg-cache`) | Kaimon's cache: ZMQ IPC sockets, `kaimon.db`, agent logs. Redirected so the sandboxed kaimon can never attach to or stomp a kaimon/gate on the host (Kaimon binds fixed socket names with rm-first semantics). |
 | `/tmp` | **private tmpfs** | writable, discarded on exit. Host `/tmp` is not visible. Holds the sandbox-private herdr sockets and XDG dirs. |
 
@@ -188,7 +188,7 @@ Launches the real sandbox on a probe script and reports what the policy
 actually produced, rather than what it was meant to produce. It prints the
 effective mount table, the top level of `/`, the contents of `/run`, every
 entry visible in `$HOME`, the writability of each grant, the surviving
-environment, and:
+environment (credential-shaped values redacted), and:
 
 ```
 --- tools on PATH ---
@@ -273,6 +273,14 @@ credential variable is excluded because it is not listed, not because someone
 remembered to add it to a scrub list. A name matching `ENV_DENY_REGEX` is
 refused with a warning even if it is added to `ENV_PASS`.
 
+One deliberate exception: **`ZAI_API_KEY`** is set unconditionally after the
+`ENV_PASS` loop, provisioned from the repo's gitignored `secrets/.zai-api-key`
+file (one line, raw key; same model as the other files in `secrets/`). It is
+never taken from the parent environment — `ENV_DENY_REGEX` would refuse it
+— so the launching shell cannot leak or override it; rotation is a one-line
+file edit. `--check` redacts credential-shaped values in its environment
+dump, so the provisioned key is not echoed back.
+
 Deliberately not passed:
 
 - every `*TOKEN` / `*KEY` / `*SECRET` / `AWS_*`
@@ -345,14 +353,15 @@ Four deliberate credential exceptions:
 - **pi's agent state** is bound read-write by design. It is pi's own credential
   store, so the allowlist entry must stay.
 - **The gh CLI's token store** is provisioned from the repo's gitignored
-  `.gh-token` file (see "Sandbox-private persistent data"): the host's
+  `secrets/.gh-token` (see "Sandbox-private persistent data"): the host's
   `~/.config/gh` is never bound, so a write-scoped host token can never leak
   into the sandbox and a sandboxed agent can never touch the host's gh auth.
-  The sandbox sees only the read-only token you keep in `.gh-token`.
+  The sandbox sees only the read-only token you keep in `secrets/.gh-token`.
 - **pi's web-search keys** (`~/.pi/web-search.json`) are a read-only seed
-  from the repo's gitignored `.web-search.json` file (see "Sandbox-private
-  persistent data"): the host's file is never bound, so the agent can
-  neither read host-side keys for other tools nor swap the provisioned ones.
+  from the repo's gitignored `secrets/.web-search.json` (see "Sandbox-
+  private persistent data"): the host's file is never bound, so the agent
+  can neither read host-side keys for other tools nor swap the provisioned
+  ones.
 - **The ssh agent** is auto-mounted read-only when the parent exports
   `SSH_AUTH_SOCK`, so `git push` works without binding any host SSH state and
   without the private key ever entering the sandbox. Understand what it grants:
@@ -388,6 +397,11 @@ the host version is replaced by a private store under
 restarts. Unlike `/tmp` (wiped every launch) it is persistent; unlike
 `WRITE_DIRS` it is isolated from the host.
 
+The provisioned credentials themselves live in the repo's gitignored
+`secrets/` directory (next to `sandbox.sh`) — host-side only, never bound
+into the sandbox: `secrets/.gh-token`, `secrets/.web-search.json`,
+`secrets/.zai-api-key`.
+
 Currently used for:
 
 - **`~/.local/share/fish`** — the sandboxed fish shell has its own history and
@@ -395,16 +409,16 @@ Currently used for:
   are invisible by default, not bound; fish gets the stronger "own copy"
   treatment since it is the shell actually used in panes.
 - **`~/.config/gh`** — the gh CLI's auth store, provisioned on **every**
-  launch from the repo's gitignored `.gh-token` file (next to `sandbox.sh`;
-  one line, raw token; rotation = edit the file and relaunch). The host's
-  real `~/.config/gh` is never bound — it may hold a write-scoped token.
+  launch from the repo's gitignored `secrets/.gh-token` (one line, raw
+  token; rotation = edit the file and relaunch). The host's real
+  `~/.config/gh` is never bound — it may hold a write-scoped token.
   Read/write (gh writes `config.yml`); `hosts.yml` is re-seeded each launch,
-  so in-session token changes don't stick. No `.gh-token` (or an empty one)
-  means gh has no token.
+  so in-session token changes don't stick. No `secrets/.gh-token` (or an
+  empty one) means gh has no token.
 - **`~/.pi/web-search.json`** — pi's web-search provider API keys, seeded on
-  every launch from the repo's gitignored `.web-search.json` file (next to
-  `sandbox.sh`) and bound read-only (same pattern as `~/.npmrc`). The
-  host's file is never bound.
+  every launch from the repo's gitignored `secrets/.web-search.json` and
+  bound read-only (same pattern as `~/.npmrc`). The host's file is never
+  bound.
 - **`~/.npmrc`** — the enforced npm config (see "Supply-chain hardening"),
   seeded from `NPMRC_DEFAULT` on first launch and bound read-only.
 - **`~/.config/mcp/mcp.json`** — MCP server registrations, seeded from

@@ -255,17 +255,16 @@ HOME_READONLY=(
 # ===========================================================================
 PRIVATE_DATA_DIRS=(
   "$HOME/.local/share/fish"   # fish shell history + state (your $SHELL in herdr panes)
-  "$HOME/.config/gh"          # gh CLI auth store (see the .gh-token block
+  "$HOME/.config/gh"          # gh CLI auth store (see the secrets/ block
                               #   below): provisioned on EVERY launch from
-                              #   the gitignored token file next to this
-                              #   script, so the token never has to be typed
-                              #   inside the sandbox and rotation is one
-                              #   file edit. The host's real ~/.config/gh is
-                              #   NEVER bound -- it may hold a write-scoped
-                              #   token. Read/write so gh can write its
-                              #   config.yml; hosts.yml is re-seeded each
-                              #   launch, so in-session token changes don't
-                              #   stick.
+                              #   secrets/.gh-token, so the token never has
+                              #   to be typed inside the sandbox and
+                              #   rotation is one file edit. The host's real
+                              #   ~/.config/gh is NEVER bound -- it may hold
+                              #   a write-scoped token. Read/write so gh can
+                              #   write its config.yml; hosts.yml is
+                              #   re-seeded each launch, so in-session token
+                              #   changes don't stick.
 )
 PRIVATE_DATA_ROOT="$HOME/.local/share/pi-sandbox"
 
@@ -521,6 +520,31 @@ ARGS+=(
 # by editing the "7 days" string here.
 ARGS+=(--setenv UV_EXCLUDE_NEWER "7 days")
 
+# --- secrets/: gitignored dir holding every provisioned credential ----------
+# All sensitive credentials come from the repo's secrets/ directory (the
+# whole dir is gitignored): .gh-token, .web-search.json, .zai-api-key. The
+# files are read host-side on every launch; none are ever read from the host
+# home or the parent environment. Resolve through readlink so a symlinked
+# invocation (e.g. ~/.local/bin/pi-sandbox) still finds the dir next to the
+# real script.
+SECRETS_DIR="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/secrets"
+
+# --- ZAI_API_KEY: provisioned from secrets/.zai-api-key ---------------------
+# Same model as the gh token / web-search keys: the value comes from
+# secrets/.zai-api-key (gitignored, host-side; one line, raw key) -- NOT
+# from the parent environment. env_pass_var above refuses credential-shaped
+# names (ENV_DENY_REGEX), so the launching shell can never leak this in.
+# Set after the ENV_PASS loop so the file always wins.
+ZAI_KEY_FILE="$SECRETS_DIR/.zai-api-key"
+if [[ -f "$ZAI_KEY_FILE" ]]; then
+  zai_key="$(head -n1 "$ZAI_KEY_FILE" | tr -d ' \t\r\n')"
+  if [[ -n "$zai_key" ]]; then
+    ARGS+=(--setenv ZAI_API_KEY "$zai_key")
+  else
+    warn "ZAI key file '$ZAI_KEY_FILE' is empty; ZAI_API_KEY will not be set"
+  fi
+fi
+
 # --- $HOME ----------------------------------------------------------------
 # Mask $HOME entirely: a private, writable, EPHEMERAL tmpfs. Nothing from the
 # host home directory is visible until bound back in. Must come BEFORE every
@@ -555,15 +579,12 @@ for dir in "${PRIVATE_DATA_DIRS[@]}"; do
   mkdir -p "$private" "$dir" 2>/dev/null || true
 done
 
-# --- gh auth: provisioned from the repo's gitignored token file -------------
-# The sandbox's gh token comes from .gh-token next to this script (gitignored,
-# host-side; single line, raw token). On EVERY launch it is written into the
-# sandbox-private store as a proper gh hosts.yml, so the token never has to be
-# typed inside the sandbox and rotating it is one file edit. The host's real
-# ~/.config/gh is never read or bound. Without the file (or with it empty),
-# gh simply has no token. Resolve through readlink so a symlinked invocation
-# (e.g. ~/.local/bin/pi-sandbox) still finds the file next to the real script.
-GH_TOKEN_FILE="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.gh-token"
+# --- gh auth: provisioned from secrets/.gh-token ----------------------------
+# On EVERY launch the token is written into the sandbox-private store as a
+# proper gh hosts.yml, so it never has to be typed inside the sandbox and
+# rotating it is one file edit. The host's real ~/.config/gh is never read or
+# bound. Without the file (or with it empty), gh simply has no token.
+GH_TOKEN_FILE="$SECRETS_DIR/.gh-token"
 GH_STORE_HOSTS="$PRIVATE_DATA_ROOT/.config/gh/hosts.yml"
 GH_ACCOUNT="csvance"   # GitHub login the token belongs to (gh needs it in
                        #   hosts.yml and won't work without it offline)
@@ -587,16 +608,16 @@ if [[ -f "$GH_TOKEN_FILE" ]]; then
   fi
 fi
 
-# --- pi web-search keys: provisioned from the repo's gitignored file ---------
+# --- pi web-search keys: provisioned from secrets/.web-search.json ----------
 # Same model as the gh token above: the sandbox's pi web-search API keys
 # (~/.pi/web-search.json: openai, brave, exa, jina, ...) come from
-# .web-search.json next to this script (gitignored, host-side). On EVERY
-# launch it is copied into the sandbox-private store and bound READ-ONLY at
+# secrets/.web-search.json (gitignored, host-side). On EVERY launch it is
+# copied into the sandbox-private store and bound READ-ONLY at
 # ~/.pi/web-search.json -- pi only reads it, and the agent can't swap keys
 # mid-session. The host's real ~/.pi/web-search.json is never bound (it may
 # hold keys for other tools). Without the file (or with it empty), pi web
 # search has no API keys.
-WS_SRC="$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.web-search.json"
+WS_SRC="$SECRETS_DIR/.web-search.json"
 WS_STORE="$PRIVATE_DATA_ROOT/.pi/web-search.json"
 if [[ -f "$WS_SRC" ]]; then
   if [[ -s "$WS_SRC" ]]; then
@@ -725,6 +746,7 @@ case "${1:-}" in
     printf '  ssh agent forwarded:   %s\n' "$([[ "$SSH_AGENT_BOUND" == 1 ]] && echo "yes, live signing oracle inside" || echo no)"
     printf '  gh token file:         %s\n' "$([[ -f "$GH_TOKEN_FILE" ]] && echo "present ($GH_TOKEN_FILE)" || echo 'absent (gh will have no token)')"
     printf '  web-search keys file:  %s\n' "$([[ -f "$WS_SRC" ]] && echo "present ($WS_SRC)" || echo 'absent (pi web search has no keys)')"
+    printf '  zai key file:          %s\n' "$([[ -f "$ZAI_KEY_FILE" ]] && echo "present ($ZAI_KEY_FILE)" || echo 'absent (ZAI_API_KEY not set)')"
     printf '\n'
 
     # Report each read-write grant once, by the name it has inside the sandbox
@@ -817,21 +839,21 @@ for s in "$HOME/.ssh" "$HOME/.gnupg" "$HOME/.netrc" "$HOME/.git-credentials" \
   [ -e "$s" ] && echo "  LEAK      $s" || echo "  invisible $s"
 done
 # ~/.config/gh is intentionally bound: the sandbox-private auth store (see
-# PRIVATE_DATA_DIRS), provisioned on every launch from the repo's gitignored
-# .gh-token file. The host's real ~/.config/gh is never mounted, so a
-# write-scoped host token can't leak in.
+# PRIVATE_DATA_DIRS), provisioned on every launch from secrets/.gh-token.
+# The host's real ~/.config/gh is never mounted, so a write-scoped host
+# token can't leak in.
 if [ -e "$HOME/.config/gh/hosts.yml" ]; then
-  echo "  ok        ~/.config/gh -> sandbox-private store (rw, token provisioned from .gh-token)"
+  echo "  ok        ~/.config/gh -> sandbox-private store (rw, token provisioned from secrets/.gh-token)"
 else
-  echo "  ok        ~/.config/gh -> sandbox-private store (rw, no token: .gh-token missing or empty at launch)"
+  echo "  ok        ~/.config/gh -> sandbox-private store (rw, no token: secrets/.gh-token missing or empty at launch)"
 fi
-# ~/.pi/web-search.json is intentionally bound: a READ-ONLY seed of the
-# repo's gitignored .web-search.json (pi's web-search provider keys). The
-# host's file is never mounted.
+# ~/.pi/web-search.json is intentionally bound: a READ-ONLY seed of
+# secrets/.web-search.json (pi's web-search provider keys). The host's file
+# is never mounted.
 if [ -e "$HOME/.pi/web-search.json" ]; then
-  echo "  ok        ~/.pi/web-search.json -> sandbox-private store (ro, keys from .web-search.json)"
+  echo "  ok        ~/.pi/web-search.json -> sandbox-private store (ro, keys from secrets/.web-search.json)"
 else
-  echo "  ok        ~/.pi/web-search.json invisible (no .web-search.json at launch)"
+  echo "  ok        ~/.pi/web-search.json invisible (no secrets/.web-search.json at launch)"
 fi
 # Any home directory other than this user's should not be reachable at all.
 _others=$(ls -A /home 2>/dev/null | grep -Fxv "$(basename "$HOME")" | tr '\n' ' ')
@@ -850,7 +872,9 @@ if [ -w / ]; then echo "  WARNING   / is writable"; else echo "  ok        / is 
 
 echo
 echo "--- surviving environment (--clearenv + ENV_PASS) ---"
-env | sort | sed 's/^/  /'
+# Credential-shaped values are redacted so provisioned keys (e.g.
+# ZAI_API_KEY from secrets/.zai-api-key) are not echoed back by --check.
+env | sort | sed -E 's/^(.*(TOKEN|SECRET|PASSWORD|API_KEY|_KEY)=).*/\1<redacted>/I; s/^/  /'
 
 echo
 echo "--- herdr ---"

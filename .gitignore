@@ -1,3 +1,2 @@
 .idea/
-.gh-token
-.web-search.json
+secrets/
