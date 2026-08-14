@@ -1,5 +1,22 @@
 # Agent instructions
 
+## Scratch space (persistent across launches)
+
+Use a scratch directory **inside the project you are working on** — not
+`/tmp` (the sandbox gives it a fresh private tmpfs on every relaunch; its
+contents vanish when the sandbox exits) and not unlisted `$HOME` paths (also
+wiped). The project directory is bound read/write into the sandbox, so files
+in it survive relaunches.
+
+- Create and use `.scratch/` in the project root (e.g. `mkdir -p .scratch`
+  in `~/Git/<project>`); create it if it is missing.
+- Add `.scratch/` to the project's `.gitignore` when you create it (scratch
+  is throwaway by definition — unless you intend to commit what you store).
+- Use it for intermediate files, downloaded artifacts, build outputs,
+  caches, notes-to-self, and anything you need to keep between launches.
+- Treat it as throwaway: clean up stale files, don't rely on it as the
+  permanent home of anything important (that belongs in tracked files).
+
 ## GitHub CLI (`gh`)
 
 `gh` is installed and configured with a **read-only, public-repos-only**
