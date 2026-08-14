@@ -113,7 +113,10 @@ Declared in `settings.json` → `packages` (user scope, installed under
 | --- | --- | --- |
 | `npm:pi-mcp-adapter` | 2.20.1 | MCP client extension — connects pi to any MCP server (this is what talks to Kaimon). Replaces the older `pi-mcp-extension`; adds the `/mcp` panel, `/mcp setup`, OAuth flows, host-config discovery, and the `mcp-scripting` skill |
 | `npm:pi-subagents` | 0.42.1 | Subagent delegation: single-agent, parallel, scripted, async and coordinated subagent workflows; ships the `pi-subagents` skill + prompt templates |
-| `../../Git/pi-plan-ng` | 0.1.0 (local path) | Dev-installed from the pi-plan-ng repo (`pi.extensions: ["./index.ts"]`): safety-gated plan mode with the command-parsing gate. Edits to `~/Git/pi-plan-ng` apply directly — no reinstall step |
+| `git:github.com/csvance/pi-plan-ng` | 0.1.0 (tracks `origin/main`; cloned to `~/.pi/agent/git/`) | Safety-gated plan mode with the command-parsing gate (`pi.extensions: ["./index.ts"]`). Installed from GitHub **without a pin**, so it tracks `main`: after pushing, `pi update git:github.com/csvance/pi-plan-ng` (or `pi update --extensions` for all) fetches and hard-resets the clone to the branch tip. Add `@ref` only if you want a fixed tag/commit instead |
+| `git:github.com/csvance/pi-handoff-ng` | 0.1.0 (tracks `origin/main`; cloned to `~/.pi/agent/git/`) | Handoff for pi: the agent writes a handoff document (stored outside the project), then a new pi session starts initialized with it. Same update model as pi-plan-ng: tracks `origin/main`, pulled by `pi update git:github.com/csvance/pi-handoff-ng` |
+| `npm:pi-claude-marketplace` | 0.13.0 | Access Claude plugin marketplaces from pi: list, inspect and install plugins from configured marketplaces |
+| `npm:@juicesharp/rpiv-todo` | 2.4.0 | Model todo list rendered as a live overlay; survives `/reload` and conversation compaction |
 | `npm:pi-deepseek-search` | 1.0.15 | Zero-config web search for pi via DeepSeek's server-side search (`web_search_20260209`); DeepSeek models only |
 
 Previously installed, now removed: `pi-mcp-extension` (superseded by
@@ -164,10 +167,13 @@ its prompt templates live under the package's `prompts/` dir.)
   "theme": "dark",
   "defaultProvider": "deepseek",
   "defaultModel": "deepseek-v4-flash",
-  "defaultThinkingLevel": "high",
+  "defaultThinkingLevel": "max",
   "hideThinkingBlock": true,
   "packages": ["npm:pi-deepseek-search", "npm:pi-mcp-adapter",
-               "../../Git/pi-plan-ng", "npm:pi-subagents"]
+               "npm:pi-subagents", "npm:pi-claude-marketplace",
+               "npm:@juicesharp/rpiv-todo",
+               "git:github.com/csvance/pi-plan-ng",
+               "git:github.com/csvance/pi-handoff-ng"]
 }
 ```
 
