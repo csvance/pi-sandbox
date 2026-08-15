@@ -43,6 +43,8 @@ Deny-by-default on all three. A leak on any one of them defeats the other two.
 | `~/.herdr` | read/write | herdr session/data directory |
 | `~/.local/state/herdr` | read/write | herdr's agent-detection manifest cache (shared with host herdr; detection profiles, not personal data) |
 | `~/.pi/agent` | read/write | pi's agent state (auth, sessions, MCP config, plugins). pi is useless without it. |
+| `~/.claude` | read/write | Claude Code state: `.credentials.json` (OAuth), `projects/` + `sessions/` (session transcripts), settings, plugins. Deliberate credential exception like `~/.pi/agent` — shared so the `claude` CLI and pi-claude-bridge stay authenticated in host and sandbox alike, and Claude Code sessions persist. |
+| `~/.claude.json` | **injected per launch** | claude's config file (onboarding markers, per-project trust/settings). **Not bound** — claude rewrites it every run (it snapshots `.claude.json.backup` first), and a live rw file bind onto a rewritten host file is a stale-handle trap on NFS. Re-injected fresh each launch via bwrap `--file` (same mechanism as `~/.nanorc`): the sandbox gets a writable copy in its tmpfs home; writes are ephemeral and the host file stays the source of truth. |
 | `~/.pi/web-search.json` | **private seeded copy, read-only** | pi web-search provider API keys (openai, brave, exa, jina, ...). The host's file is **never bound**; seeded on every launch from the gitignored `secrets/.web-search.json` (same pattern as `~/.npmrc`). Read-only so the agent can't swap keys mid-session. |
 | `~/.config/kaimon` | read/write | Kaimon config: `projects.json`, `extensions.json`, `config.json` |
 | `~/.config/mcp` | **private seeded copy, read-only** | MCP server registrations (`mcp.json`) — the host's dir is **never bound**. Seeded from `MCP_DEFAULT` in `sandbox.sh` on first launch (same pattern as `~/.npmrc`; see "Sandbox-private persistent data"). A sandboxed agent can neither read host MCP configs (which may hold other tools' OAuth secrets or `command` entries) nor edit the registrations pi loads. |
@@ -349,10 +351,18 @@ invisible. Follow "the one rule" above for every edit. Credential locations
 (shell and agent secrets, git token stores, browser profiles, password vaults,
 cloud credentials, dotfile secrets) are intentionally not enumerated here.
 
-Four deliberate credential exceptions:
+Five deliberate credential exceptions:
 
 - **pi's agent state** is bound read-write by design. It is pi's own credential
   store, so the allowlist entry must stay.
+- **Claude Code's credential store** (`~/.claude`) is bound read-write by
+  design, like pi's agent state: `.credentials.json` holds the OAuth tokens
+  that authenticate both the `claude` CLI and pi-claude-bridge, and claude
+  refreshes them in place. The sibling config FILE `~/.claude.json` is
+  deliberately **not** bound (see the policy table): claude rewrites it on
+  nearly every run, so a live file bind would be a stale-handle trap on NFS
+  and a read-only bind would break claude's writes. It is injected as a
+  writable per-launch copy instead.
 - **The gh CLI's token store** is provisioned from the repo's gitignored
   `secrets/.gh-token` (see "Sandbox-private persistent data"): the host's
   `~/.config/gh` is never bound, so a write-scoped host token can never leak

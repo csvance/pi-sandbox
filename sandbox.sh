@@ -23,6 +23,7 @@
 #
 # $HOME is masked with a private tmpfs and rebound one path at a time:
 #   - WRITE_DIRS         read-write: Julia depot, projects, agent credentials
+#                       (pi auth, claude auth) — the deliberate exceptions
 #   - HOME_READONLY      read-only: installed CLIs + configs (pi, herdr, julia…)
 #   - PRIVATE_DATA_DIRS  the sandbox's OWN persistent copies of a path
 # (plus /tmp, a fresh private tmpfs). herdr runs inside the sandbox, so every
@@ -165,6 +166,19 @@ WRITE_DIRS=(
                           #   Without this, pi has no API keys and can't
                           #   persist sessions. Drop it only if you plan to
                           #   provision credentials inside the sandbox.
+  "$HOME/.claude"         # Claude Code state: .credentials.json (OAuth),
+                          #   projects/ + sessions/ (session transcripts),
+                          #   settings, plugins. Deliberate credential
+                          #   exception like ~/.pi/agent: shared read-write
+                          #   so the claude CLI and pi-claude-bridge stay
+                          #   authenticated in host and sandbox alike, and
+                          #   Claude Code sessions persist across launches.
+                          #   ~/.claude.json (the FILE) is deliberately NOT
+                          #   bound — claude rewrites it every run, and a
+                          #   live file bind onto a rewritten host file is a
+                          #   stale-handle trap on NFS. It is re-injected
+                          #   fresh each launch instead (see the --file
+                          #   block below).
   "$HOME/.config/kaimon"  # Kaimon config: projects.json, extensions.json,
                           #   config.json (the TUI writes these)
                           # Kaimon's CACHE (~/.cache/kaimon: ZMQ IPC sockets,
@@ -715,6 +729,24 @@ if [[ ! -f "$MCP_PRIVATE" ]]; then
 fi
 [[ -f "$MCP_PRIVATE" ]] && ARGS+=(--ro-bind "$MCP_PRIVATE" "$HOME/.config/mcp/mcp.json")
 
+# --- ~/.claude.json: injected fresh into the sandbox on EVERY launch -------
+# NOT a bind, and deliberately not one: claude rewrites ~/.claude.json on
+# nearly every run (it snapshots .claude.json.backup first), so a read-write
+# file bind onto the host file would be a stale-handle trap on NFS, and a
+# read-only bind would break claude's writes. Instead the host copy is pushed
+# in once at setup via bwrap --file (same mechanism as ~/.nanorc below):
+# bwrap reads the open FD during mount setup and writes a fresh regular file
+# into the sandbox's tmpfs $HOME; the FD is closed after setup, so no host
+# file handle is ever held open. Claude gets a writable per-launch copy, the
+# host file stays the source of truth, and in-sandbox changes (theme,
+# per-project trust, settings) are ephemeral by design — re-seeded next
+# launch. No host file → nothing injected → claude creates its own (the
+# one-time onboarding/trust prompt appears once, which is correct).
+if [[ -f "$HOME/.claude.json" ]]; then
+  exec 10< "$HOME/.claude.json"
+  ARGS+=(--file 10 "$HOME/.claude.json")
+fi
+
 # --- ~/.nanorc: injected fresh into the sandbox on EVERY launch ---
 # The host's ~/.nanorc is deliberately never bound (the home mask hides it
 # anyway). Instead the sandbox's own ~/.nanorc is written from scratch into
@@ -851,7 +883,7 @@ echo "--- credential channels ---"
 # its allowlisted children, so testing one would be a guaranteed false alarm.
 for s in "$HOME/.ssh" "$HOME/.gnupg" "$HOME/.netrc" "$HOME/.git-credentials" \
          "$HOME/.aws" "$HOME/.docker" "$HOME/.kube" \
-         "$HOME/.claude" "$HOME/.cache/kaimon" "$HOME/Documents" \
+         "$HOME/.cache/kaimon" "$HOME/Documents" \
          "$HOME/.local/share/keyrings" /opt /srv /mnt /media /var/log; do
   [ -e "$s" ] && echo "  LEAK      $s" || echo "  invisible $s"
 done
@@ -886,6 +918,17 @@ else
   echo "  n/a       gh not installed"
 fi
 if [ -w / ]; then echo "  WARNING   / is writable"; else echo "  ok        / is read-only"; fi
+
+if [ -d "$HOME/.claude" ]; then
+  echo "  ok        ~/.claude rw (credentials + CC sessions, shared with host)"
+else
+  echo "  WARNING   ~/.claude missing (claude CLI/bridge will not be authenticated)"
+fi
+if [ -f "$HOME/.claude.json" ]; then
+  echo "  ok        ~/.claude.json seeded (writable per-launch copy, $(wc -c < "$HOME/.claude.json") bytes)"
+else
+  echo "  note      no ~/.claude.json (host file absent; claude will create one)"
+fi
 
 echo
 echo "--- surviving environment (--clearenv + ENV_PASS) ---"
